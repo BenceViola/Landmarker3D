@@ -104,6 +104,7 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    overflow-x: hidden; /* nothing may slide under the 3D view, which would swallow its clicks */
     border-right: 1px solid var(--line);
   }
   .panel-head {
@@ -114,7 +115,9 @@
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: 16px;
   }
-  .brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  /* Wraps the buttons onto a second line when a wider font or larger text
+     doesn't leave room for them beside the title. */
+  .brand { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
   .brand h1 {
     margin: 0;
     font-family: var(--font-display);

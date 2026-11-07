@@ -58,6 +58,35 @@ describe('start-up', () => {
     assert.match(await page.locator('#hash').innerText(), /^[0-9a-f]{64}$/);
   });
 
+  // Google Fonts can be blocked (school networks) and fallback fonts vary by
+  // system; on GitHub's Linux runner a wider font pushed Save under the 3D view.
+  for (const [label, css] of [
+    ['the intended font', ''],
+    ['a wide fallback font', ':root { --font-body: Verdana, "DejaVu Sans", sans-serif; --font-display: Verdana, "DejaVu Sans", sans-serif } * { letter-spacing: 0.05em }'],
+    ['larger text', 'html { font-size: 125% } .btn, .tab, h1 { zoom: 1.2 }'],
+  ]) {
+    test(`panel controls stay inside the panel and clickable with ${label}`, async () => {
+      const page = await start();
+      if (css) await page.addStyleTag({ content: css });
+      const problems = await page.evaluate(() => {
+        const panel = document.querySelector('.panel').getBoundingClientRect();
+        const out = [];
+        for (const el of document.querySelectorAll('.panel-head .btn, .panel-head .tab')) {
+          const r = el.getBoundingClientRect();
+          const name = el.id || el.textContent.trim();
+          if (r.right > panel.right + 0.5) out.push(`${name} sticks out ${Math.round(r.right - panel.right)} px`);
+          const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          if (!el.contains(hit) && !(el.htmlFor && hit?.closest('label') === el)) out.push(`${name} is covered by ${hit?.tagName}`);
+        }
+        return out;
+      });
+      assert.deepEqual(problems, []);
+      const n = (await saved(page)).length;
+      await page.locator('#save-btn').click({ timeout: 3000 });
+      await waitForSaves(page, n + 1);
+    });
+  }
+
   test('works at phone width without horizontal scrolling', async () => {
     const page = await start({ width: 390, height: 844 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
