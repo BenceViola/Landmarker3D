@@ -1,0 +1,46 @@
+name: Deploy to GitHub Pages
+
+# Publishes the app after the tests pass on main (same setup as landmarker2D).
+# Pushes made from Claude sessions don't start GitHub's built-in "deploy from
+# a branch" build, so the site is published by this workflow instead.
+# One-time setup: repository Settings → Pages → Source: "GitHub Actions".
+# It can also be started by hand: Actions → Deploy to GitHub Pages → Run workflow.
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Assemble site (the page and its scripts only, no tests)
+        run: |
+          mkdir -p _site/js
+          cp index.html _site/
+          cp js/*.js _site/js/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

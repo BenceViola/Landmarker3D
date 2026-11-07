@@ -50,4 +50,6 @@ npm run test:e2e                 # browser tests
 
 To try changes locally, serve the folder with any static server, e.g. `npx serve .`, and open the address it prints. Opening `index.html` straight from disk does not work, because browsers block module scripts from `file://` addresses.
 
+The site is published to GitHub Pages by `.github/workflows/pages.yml` after the tests pass on every push to `main` (repository Settings → Pages → Source must be "GitHub Actions").
+
 More detail on the code and the decisions behind it: [`CLAUDE.md`](CLAUDE.md). Tests: [`tests/README.md`](tests/README.md).

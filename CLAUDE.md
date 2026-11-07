@@ -48,6 +48,10 @@ All changes to landmarks and the template go through `Session`, which fires a `c
 
 `npm test` (unit, ~1 s) and `npm run test:e2e` (headless Chromium, ~1 min). Both run in CI on every push. Add a test with every fix or feature; the browser tests catch problems the unit tests can't (one already caught the loading overlay never hiding on a plain host). Test meshes are generated in `tests/fixtures.js`.
 
+## Deployment
+
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main` (Pages source: "GitHub Actions"). Pushes from Claude sessions don't trigger GitHub's "deploy from a branch" build, which is why this workflow exists. The version in the page header (`v0.2`) shows which version is live.
+
 ## Writing for the UI
 
 Short, plain sentences from the student's side of the screen. Errors say what went wrong and what to do about it. No jargon a biology student wouldn't know.
