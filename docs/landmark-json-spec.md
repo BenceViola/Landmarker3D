@@ -1,6 +1,6 @@
 # Landmark JSON Format Specification (three.js)
 
-Exported from the project's spec document on 2026-11-07. This is the three.js app's copy of the Landmark JSON format specification, kept in step with the general spec (including its 2D additions in v0.2, which this app does not use). The format itself is unchanged from the general spec; this copy adds the decisions made for the three.js implementation (see *three.js implementation* and *Decisions*).
+Exported from the project's spec document on 2026-11-07, updated the same day with replicates (v0.3). This is the three.js app's copy of the Landmark JSON format specification, kept in step with the general spec (including its 2D additions in v0.2, which this app does not use, and the optional `specimen.replicate` field in v0.3). The format itself is unchanged from the general spec; this copy adds the decisions made for the three.js implementation (see *three.js implementation* and *Decisions*).
 
 ## Purpose and principles
 
@@ -22,7 +22,7 @@ A file has five required top-level fields and four optional ones. The extension 
 | --- | --- | --- | --- |
 | `format` | string | yes | Always `"landmark-json"`. Lets the app reject unrelated JSON. |
 | `version` | string | yes | Format version, e.g. `"0.1.0"` (see Versioning). |
-| `specimen` | object | yes | `id`, optional `notes`, and exactly one source: `mesh` (`file`, `sha256`, `units`, `vertex_count`, `face_count`) for 3D, or `image` for 2D (see 2D data). |
+| `specimen` | object | yes | `id`, optional `notes`, optional `replicate` (v0.3, see Replicates), and exactly one source: `mesh` (`file`, `sha256`, `units`, `vertex_count`, `face_count`) for 3D, or `image` for 2D (see 2D data). |
 | `template` | object | yes | Either embedded definitions, or `{ "ref": "<file or URL>", "id": "...", "version": "..." }`. |
 | `landmarks` | array | yes | Placed fixed landmarks (may be empty). |
 | `curves` | array | no | Reserved from v0.2. |
@@ -155,6 +155,21 @@ Example of a 2D file (template shortened):
 }
 ```
 
+## Replicates (v0.3)
+
+A replicate is the same specimen landmarked again on the same source, to measure how reliably landmarks are placed. Each replicate is its own file. Replicates of a specimen share `specimen.id` and the source (same mesh or image file, same `sha256`), and differ only in `specimen.replicate`.
+
+- `specimen.replicate`: optional whole number, 1 or more. Absent means 1, so every existing file counts as a first replicate.
+- Several images or views of one specimen are not replicates: they have different sources (see 2D data). Use replicates only for repeated placement on the same source.
+- Because replicates share the source, their coordinates can be compared directly, without alignment.
+- File name: `<id>_r<n>.lmk.json` for replicates after the first, e.g. `SKULL_014_r2.lmk.json`.
+- Apps should hide earlier replicates while a new one is placed, so each replicate is independent.
+
+Export:
+
+- TPS: when a combined export holds more than one replicate of any specimen, every `ID=` line gets the suffix `_r<n>` (`SKULL_014_r1`, `SKULL_014_r2`), so IDs stay unique and the replicate can be read back. Otherwise `ID=` is the specimen ID alone.
+- CSV: separate `specimen_id` and `replicate` columns, ready to use as factors for a measurement-error analysis (e.g. Procrustes ANOVA in geomorph).
+
 ## Conventions
 
 **Status values.** Every landmark, curve and surface carries one:
@@ -262,6 +277,7 @@ Format:
 - [x] Extension `.lmk.json`, format name `landmark-json`. No other use of `.lmk.json` was found; bare `.lmk` is used only in unrelated domains.
 - [x] v0.1 includes all three statuses, `placed`, `estimated` and `missing`.
 - [x] `vertex_count` and `face_count` are raw file counts (for STL, `vertex_count` = 3 × `face_count`).
+- [x] Replicates are recorded in an optional `specimen.replicate` field (v0.3), not encoded in the specimen ID. Both apps follow this.
 - [ ] Deferred: a Slicer `.mrk.json` export is not planned for now but may be added later.
 
 three.js app (decided 2026-11-06):

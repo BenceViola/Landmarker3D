@@ -56,4 +56,5 @@ Short, plain sentences from the student's side of the screen. Errors say what we
 - CSV export.
 - Saving and opening templates as separate `.template.json` files; opening landmark files that reference one (currently refused).
 - A JSON Schema file for the format.
+- Replicates (spec v0.3, optional `specimen.replicate`): not used yet. Files that have it keep it on save, but the saved `version` is relabelled `0.2.0`; keep the file's version when it is newer. Planned together with specimen sets, the same way as in the 2D app (landmarker2D).
 - Deferred: Slicer `.mrk.json` export.
