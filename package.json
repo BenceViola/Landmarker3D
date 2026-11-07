@@ -1,0 +1,25 @@
+{
+  "name": "landmarker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight 3D landmarking on STL and PLY meshes, in the browser.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/*.test.js\"",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BenceViola/Landmarker3D.git"
+  },
+  "homepage": "https://benceviola.github.io/Landmarker3D/",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0",
+    "three": "0.170.0",
+    "three-mesh-bvh": "0.8.3"
+  }
+}

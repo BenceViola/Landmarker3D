@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Place 3D landmarks on STL and PLY meshes in the browser and export them as Landmark JSON or TPS.">
+<title>Landmarker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a working instrument. Control panel with tabs on the left, the
+     specimen viewport fills the rest; on phones the viewport sits on top. */
+  :root {
+    --bg: #f3f4f6;
+    --surface: #ffffff;
+    --fg: #1a1e26;
+    --muted: #5b6372;
+    --line: #dce0e7;
+    --accent: #2a52c4;
+    --accent-fg: #ffffff;
+    --accent-soft: #e7edfb;
+    --viewport: #e6e9ee;
+    --danger: #a8261d;
+    --danger-bg: #fbebeb;
+    --note-bg: #f9eeda;
+    --note-fg: #6b4a0d;
+
+    /* Marker colours: identical in the 3D view and the panel, in both themes */
+    --m-placed: #2f63e0;
+    --m-estimated: #d98a00;
+    --m-active: #e0337a;
+    --m-missing: #8a909b;
+
+    --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+    --radius: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171c;
+      --surface: #1b1f26;
+      --fg: #e6e9ef;
+      --muted: #9ba3b1;
+      --line: #2b313b;
+      --accent: #8ba7ff;
+      --accent-fg: #0c1120;
+      --accent-soft: #1f2840;
+      --viewport: #0e1115;
+      --danger: #ff9a90;
+      --danger-bg: #3a1d1d;
+      --note-bg: #3a2f17;
+      --note-fg: #f2d79c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1b1f26;
+    --fg: #e6e9ef;
+    --muted: #9ba3b1;
+    --line: #2b313b;
+    --accent: #8ba7ff;
+    --accent-fg: #0c1120;
+    --accent-soft: #1f2840;
+    --viewport: #0e1115;
+    --danger: #ff9a90;
+    --danger-bg: #3a1d1d;
+    --note-bg: #3a2f17;
+    --note-fg: #f2d79c;
+    color-scheme: dark;
+  }
+
+  /* Declared here too, not only by the claude.ai wrapper: on a plain host
+     (GitHub Pages) the busy overlay and messages would otherwise never hide. */
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .mono, .code { font-family: var(--font-data); }
+  .muted { color: var(--muted); }
+
+  .app {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    height: 100%;
+  }
+
+  /* ---- Panel ---- */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--line);
+  }
+  .panel-head {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-block: 16px 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: 16px;
+  }
+  .brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 22px;
+    letter-spacing: 0.01em;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .brand .ver { font-family: var(--font-data); font-size: 11px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+
+  .tablist { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
+  .tab {
+    flex: 1;
+    padding: 9px 4px 8px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    background: none;
+    color: var(--muted);
+    font: 500 13px var(--font-body);
+    cursor: pointer;
+  }
+  .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--fg); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .tabpanel {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding-block: 16px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: 16px;
+  }
+
+  section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  h2 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .hint { margin: 0; color: var(--muted); font-size: 12.5px; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font: 500 13px/1 var(--font-body);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--muted); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.small { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
+  .btn.on { background: var(--m-estimated); border-color: var(--m-estimated); color: #fff; }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+  .btn.quiet { border-color: transparent; background: none; color: var(--muted); padding: 0; min-height: 28px; }
+  .btn.quiet:hover { color: var(--danger); }
+  .btn:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible,
+  input:focus-visible + .switch, summary:focus-visible, .lm-row:focus-visible, .icon-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .file-input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .message {
+    margin: 0 16px 0 max(16px, env(safe-area-inset-left, 0px));
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    font-size: 13px;
+  }
+  .message.error { background: var(--danger-bg); color: var(--danger); }
+  .message.note { background: var(--note-bg); color: var(--note-fg); }
+  .message { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .message[hidden] { display: none; }
+  .message p { margin: 0; }
+  .message-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .message .btn:not(.primary) { background: transparent; border-color: currentColor; color: inherit; }
+  .message .quiet-close { border-color: transparent !important; padding: 0 4px; opacity: 0.8; }
+
+  .head-actions { display: flex; gap: 6px; }
+  #save-btn { position: relative; }
+  #save-btn.has-changes::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--m-active);
+  }
+  .save-status { margin: 0; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+  .save-status.is-dirty { color: var(--m-active); }
+  .tps-missing { width: 80px !important; text-align: right; }
+  .tab { font-size: 12.5px; }
+
+  input[type="text"], textarea, select {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font: 13px/1.35 var(--font-body);
+  }
+  input.mono { font-family: var(--font-data); font-size: 12.5px; }
+  input[readonly] { color: var(--muted); background: transparent; }
+  textarea { resize: vertical; }
+
+  /* ---- Status dots (shared by list, card) ---- */
+  .dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--muted);
+  }
+  .dot.is-placed { background: var(--m-placed); border-color: var(--m-placed); }
+  .dot.is-estimated { background: var(--m-estimated); border-color: var(--m-estimated); }
+  .dot.is-missing {
+    border: 0;
+    background:
+      linear-gradient(45deg, transparent 42%, var(--m-missing) 42% 58%, transparent 58%),
+      linear-gradient(-45deg, transparent 42%, var(--m-missing) 42% 58%, transparent 58%);
+    border-radius: 0;
+  }
+
+  /* ---- Landmarks tab ---- */
+  .progress-line { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .progress-line strong { font-variant-numeric: tabular-nums; }
+  .progress-line .muted { font-size: 12px; text-align: right; }
+  .bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 6px; }
+  .bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
+
+  .active-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--m-active);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .active-card.is-done { border-left-color: var(--line); }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--m-active);
+  }
+  .active-card.is-done .eyebrow { color: var(--muted); }
+  .active-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .active-title .code { font-size: 13px; color: var(--muted); }
+  .active-name { font-family: var(--font-display); font-weight: 600; font-size: 19px; line-height: 1.2; overflow-wrap: anywhere; }
+  .active-desc { margin: 0; font-size: 13px; }
+  .active-state { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 12.5px; }
+  .active-state .coords, .active-state .pair { font-family: var(--font-data); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .active-hint { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .active-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .active-actions:empty { display: none; }
+  .note input { font-size: 12.5px; }
+
+  .lm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .lm-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 10px 44px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: var(--radius);
+    background: none;
+    color: var(--fg);
+    font: 13px var(--font-body);
+    text-align: left;
+    cursor: pointer;
+  }
+  .lm-row:hover { background: var(--accent-soft); }
+  .lm-row.is-active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--m-active); }
+  .lm-row .code { font-size: 12px; color: var(--muted); }
+  .lm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lm-state { font-size: 11.5px; color: var(--muted); }
+  .lm-state.is-todo { color: var(--fg); font-weight: 500; }
+  .list-divider {
+    margin-top: 10px;
+    padding: 6px 8px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+  }
+
+  .lm-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .lm-tools .spacer { flex: 1; }
+
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .field-label { display: flex; flex-direction: column; }
+  .field-label small { color: var(--muted); font-size: 11.5px; }
+  .field select { width: auto; }
+  .field input[type="range"] { width: 120px; accent-color: var(--accent); }
+  .field-stack { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+  .field-stack input, .field-stack textarea, .field-stack select { color: var(--fg); }
+
+  /* Toggle switches built on real checkboxes */
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+  .toggle input { position: absolute; opacity: 0; pointer-events: none; }
+  .switch {
+    flex: none;
+    position: relative;
+    width: 32px;
+    height: 18px;
+    border-radius: 999px;
+    background: var(--line);
+    transition: background 0.15s;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+    transition: transform 0.15s;
+  }
+  .toggle input:checked + .switch { background: var(--accent); }
+  .toggle input:checked + .switch::after { transform: translateX(14px); }
+
+  .keys {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 12px;
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .keys dt { font-family: var(--font-data); font-size: 11.5px; color: var(--fg); }
+  .keys dd { margin: 0; }
+
+  /* ---- Template tab ---- */
+  .tpl-meta { display: flex; flex-direction: column; gap: 10px; }
+  .tpl-meta-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 8px; }
+  .tpl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .tpl-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .tpl-item:first-child { border-top: 1px solid var(--line); }
+  .tpl-item.is-active .ord { color: var(--m-active); }
+  .tpl-line { display: grid; grid-template-columns: 20px 64px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+  .ord { font-family: var(--font-data); font-size: 11.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .tpl-btns { display: flex; gap: 2px; }
+  .icon-btn {
+    width: 26px;
+    height: 28px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    font: 15px/1 var(--font-body);
+    cursor: pointer;
+  }
+  .icon-btn:hover:not(:disabled) { background: var(--accent-soft); color: var(--fg); }
+  .icon-btn:disabled { opacity: 0.3; cursor: default; }
+  .icon-btn[data-act="del"]:hover { color: var(--danger); background: var(--danger-bg); }
+  .tpl-more { margin-left: 26px; }
+  .tpl-more summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tpl-more[open] summary { white-space: normal; margin-bottom: 6px; }
+  .tpl-more .field-stack + .field-stack { margin-top: 8px; }
+  .tpl-err { margin: 0 0 0 26px; font-size: 12px; color: var(--danger); }
+  .tpl-confirm, .tpl-danger .confirm-text { margin-left: 0; }
+  .tpl-confirm {
+    margin-left: 26px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: var(--danger-bg);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .confirm-text { margin: 0; font-size: 12.5px; }
+  .confirm-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tpl-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+  .tpl-bulk summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+  .tpl-bulk[open] { display: flex; flex-direction: column; gap: 6px; }
+  .tpl-bulk[open] .btn { align-self: flex-start; }
+  .tpl-danger { padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+
+  /* ---- Mesh tab ---- */
+  .open-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .file-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .file-name {
+    margin: 0;
+    font-weight: 600;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .tag {
+    flex: none;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px 12px;
+    margin: 0;
+  }
+  .stats dt { color: var(--muted); font-size: 12.5px; }
+  .stats dd {
+    margin: 0;
+    font-family: var(--font-data);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  .hash-row { display: flex; flex-direction: column; gap: 6px; }
+  .hash {
+    font-family: var(--font-data);
+    font-size: 11px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+  .hash-row .btn { align-self: flex-start; }
+
+  /* ---- Viewport ---- */
+  .stage {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    background: var(--viewport);
+    overflow: hidden;
+    touch-action: none;
+  }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .label-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+  .lm-label span {
+    display: inline-block;
+    margin: 0 0 5px 7px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    color: var(--fg);
+    font: 500 11px/1.4 var(--font-data);
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  }
+  .lm-label.is-estimated span { box-shadow: inset 2px 0 0 var(--m-estimated), 0 1px 2px rgb(0 0 0 / 0.18); }
+  .lm-label.is-active span { background: var(--m-active); color: #fff; font-size: 12px; }
+
+  .stage-top {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .stage-hint {
+    margin: 0;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    border: 1px solid var(--line);
+    font-size: 13px;
+    min-width: 0;
+  }
+  .stage-hint .verb { color: var(--m-active); font-weight: 600; }
+  .stage-hint .code { color: var(--muted); font-size: 12px; margin-left: 2px; }
+  .viewbar {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    border: 1px solid var(--line);
+    pointer-events: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .viewbar button {
+    min-width: 30px;
+    height: 28px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg);
+    font: 500 12px var(--font-data);
+    cursor: pointer;
+  }
+  .viewbar button:hover { background: var(--accent-soft); }
+  .viewbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .viewbar .sep { width: 1px; margin: 4px 2px; background: var(--line); }
+  .viewbar .fit { font-family: var(--font-body); }
+
+  .space-note {
+    position: absolute;
+    left: 12px;
+    bottom: 10px;
+    margin: 0;
+    font-family: var(--font-data);
+    font-size: 11px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .busy {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--viewport) 70%, transparent);
+  }
+  .busy-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .drop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+    pointer-events: none;
+  }
+  .drop-box {
+    padding: 28px 36px;
+    border: 2px dashed var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--accent);
+  }
+
+  @media (max-width: 760px) {
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 60vh auto; height: auto; }
+    .stage { order: -1; }
+    .panel { border-right: 0; }
+    .panel-head, .tabpanel { padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+    .tabpanel { overflow: visible; }
+    .stage-top { flex-direction: column; }
+    .keys-section { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 2.4s; }
+    .switch, .switch::after, .bar span { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div class="panel-head">
+      <header class="brand">
+        <h1>Landmarker <span class="ver">v0.1</span></h1>
+        <div class="head-actions">
+          <input type="file" id="file-input" class="file-input" accept=".stl,.ply">
+          <label for="file-input" class="btn primary">Open mesh…</label>
+          <button type="button" class="btn" id="save-btn">Save</button>
+        </div>
+      </header>
+      <div class="tablist" role="tablist" aria-label="Panel">
+        <button type="button" class="tab" role="tab" id="t-landmarks" aria-controls="tab-landmarks" aria-selected="true">Landmarks</button>
+        <button type="button" class="tab" role="tab" id="t-template" aria-controls="tab-template" aria-selected="false" tabindex="-1">Template</button>
+        <button type="button" class="tab" role="tab" id="t-mesh" aria-controls="tab-mesh" aria-selected="false" tabindex="-1">Mesh</button>
+        <button type="button" class="tab" role="tab" id="t-file" aria-controls="tab-file" aria-selected="false" tabindex="-1">File</button>
+      </div>
+    </div>
+
+    <div id="message" class="message" role="alert" hidden></div>
+
+    <!-- Landmarks -->
+    <div class="tabpanel" role="tabpanel" id="tab-landmarks" aria-labelledby="t-landmarks">
+      <div id="lm-progress"></div>
+      <div id="lm-active"></div>
+      <section aria-label="Landmark list">
+        <ol class="lm-list" id="lm-list"></ol>
+      </section>
+      <div class="lm-tools">
+        <button type="button" class="btn small" id="adhoc-btn">+ Ad hoc point</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn small" id="undo-btn" title="Ctrl/⌘ Z" disabled>Undo</button>
+        <button type="button" class="btn small" id="redo-btn" title="Ctrl/⌘ Shift Z" disabled>Redo</button>
+      </div>
+      <section aria-labelledby="markers-h">
+        <h2 id="markers-h">Markers</h2>
+        <label class="toggle">Show all labels
+          <input type="checkbox" id="labels-toggle" checked><span class="switch"></span>
+        </label>
+        <div class="field">
+          <label for="marker-size">Marker size</label>
+          <input type="range" id="marker-size" min="0.4" max="3" step="0.1" value="1">
+        </div>
+      </section>
+      <section class="keys-section" aria-labelledby="keys-h">
+        <h2 id="keys-h">Mouse and keys</h2>
+        <dl class="keys">
+          <dt>click</dt><dd>place the current landmark</dd>
+          <dt>drag marker</dt><dd>move it over the surface</dd>
+          <dt>drag</dt><dd>rotate (right-drag: pan, scroll: zoom)</dd>
+          <dt>N / P</dt><dd>next / previous landmark</dd>
+          <dt>M · E · Del</dt><dd>missing · estimated · clear</dd>
+          <dt>Ctrl/⌘ Z</dt><dd>undo (add Shift to redo)</dd>
+          <dt>Ctrl/⌘ S</dt><dd>save the landmark file</dd>
+          <dt>F · H</dt><dd>fit view · default view</dd>
+        </dl>
+      </section>
+    </div>
+
+    <!-- Template -->
+    <div class="tabpanel" role="tabpanel" id="tab-template" aria-labelledby="t-template" hidden>
+      <div id="template-editor"></div>
+    </div>
+
+    <!-- Mesh -->
+    <div class="tabpanel" role="tabpanel" id="tab-mesh" aria-labelledby="t-mesh" hidden>
+      <section aria-labelledby="mesh-h">
+        <h2 id="mesh-h">Mesh</h2>
+        <div class="file-head">
+          <p id="file-name" class="file-name">No mesh loaded</p>
+          <span id="sample-tag" class="tag" hidden>Example</span>
+        </div>
+        <dl class="stats">
+          <dt>Format</dt><dd id="format">–</dd>
+          <dt>Triangles</dt><dd id="faces">–</dd>
+          <dt>Vertices</dt><dd id="vertices">–</dd>
+          <dt>Extent</dt><dd id="extent">–</dd>
+          <dt>Centre</dt><dd id="centre">–</dd>
+          <dt>File size</dt><dd id="size">–</dd>
+        </dl>
+        <div class="hash-row">
+          <span class="hint">SHA-256</span>
+          <span id="hash" class="hash">–</span>
+          <button type="button" id="copy-hash" class="btn small" hidden>Copy hash</button>
+        </div>
+        <div class="field">
+          <label class="field-label" for="units">Units<small>STL and PLY don’t store units</small></label>
+          <select id="units">
+            <option value="mm" selected>mm</option>
+            <option value="cm">cm</option>
+            <option value="m">m</option>
+            <option value="um">µm</option>
+            <option value="unknown">unknown</option>
+          </select>
+        </div>
+      </section>
+
+      <section aria-labelledby="display-h">
+        <h2 id="display-h">Display</h2>
+        <label class="toggle">Smooth shading
+          <input type="checkbox" id="smooth" checked><span class="switch"></span>
+        </label>
+        <label class="toggle">Show triangles
+          <input type="checkbox" id="wireframe"><span class="switch"></span>
+        </label>
+        <label class="toggle" id="colors-row" hidden>Vertex colours
+          <input type="checkbox" id="colors"><span class="switch"></span>
+        </label>
+      </section>
+
+      <section aria-labelledby="open-h">
+        <h2 id="open-h">Files</h2>
+        <div class="open-row">
+          <button type="button" id="sample-btn" class="btn">Load example mesh</button>
+        </div>
+        <p class="hint">You can also drop an STL or PLY file anywhere on the page. Meshes are read on this computer and never uploaded.</p>
+      </section>
+    </div>
+    <!-- File -->
+    <div class="tabpanel" role="tabpanel" id="tab-file" aria-labelledby="t-file" hidden>
+      <section aria-labelledby="spec-h">
+        <h2 id="spec-h">Specimen</h2>
+        <label class="field-stack">Specimen ID
+          <input type="text" id="spec-id" class="mono" placeholder="e.g. SKULL_014">
+        </label>
+        <label class="field-stack">Operator
+          <input type="text" id="operator" placeholder="Your name or student number">
+        </label>
+        <label class="field-stack">Notes
+          <textarea id="spec-notes" rows="2" placeholder="e.g. Left zygomatic arch broken"></textarea>
+        </label>
+      </section>
+
+      <section aria-labelledby="lmk-h">
+        <h2 id="lmk-h">Landmark file</h2>
+        <p class="save-status" id="save-status" role="status"></p>
+        <div class="open-row">
+          <button type="button" class="btn primary" id="save-file">Save</button>
+          <button type="button" class="btn" id="save-as">Save as…</button>
+          <input type="file" id="open-lmk-input" class="file-input" accept=".json,application/json">
+          <label for="open-lmk-input" class="btn">Open landmark file…</label>
+        </div>
+        <p class="hint">Saved as <span class="mono">.lmk.json</span> with the template, the mesh’s SHA-256 and every point. When you open one, the app checks it belongs to the open mesh. You can also drop a mesh and its landmark file on the page together.</p>
+      </section>
+
+      <section aria-labelledby="tps-h">
+        <h2 id="tps-h">TPS export</h2>
+        <div class="open-row">
+          <button type="button" class="btn" id="export-tps">Export TPS</button>
+          <input type="file" id="combine-input" class="file-input" accept=".json,application/json" multiple>
+          <label for="combine-input" class="btn">Combine files into one TPS…</label>
+        </div>
+        <div class="field">
+          <label class="field-label" for="tps-missing">Missing value<small>written as x, y and z</small></label>
+          <input type="text" id="tps-missing" class="mono tps-missing" value="-999">
+        </div>
+        <label class="toggle">Include ad hoc points
+          <input type="checkbox" id="tps-adhoc" checked><span class="switch"></span>
+        </label>
+        <p class="hint">Rows follow the template order (<span class="mono">LM3=</span> blocks, one per specimen, with <span class="mono">ID=</span>). Coordinates are in mesh units, unaligned. To combine, choose several saved landmark files made with the same template.</p>
+      </section>
+    </div>
+  </aside>
+
+  <main class="stage" id="stage" aria-label="3D view">
+    <div class="stage-top">
+      <p class="stage-hint" id="stage-hint" hidden></p>
+      <div class="viewbar" role="toolbar" aria-label="View along mesh axes">
+        <button type="button" data-view="+x" title="View from +X">+X</button>
+        <button type="button" data-view="-x" title="View from −X">−X</button>
+        <button type="button" data-view="+y" title="View from +Y">+Y</button>
+        <button type="button" data-view="-y" title="View from −Y">−Y</button>
+        <button type="button" data-view="+z" title="View from +Z">+Z</button>
+        <button type="button" data-view="-z" title="View from −Z">−Z</button>
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" class="fit" id="fit-btn" title="Fit to view (F)">Fit</button>
+      </div>
+    </div>
+    <p class="space-note"><span id="stage-file"></span> · coordinates in mesh file space</p>
+    <div class="busy" id="busy" hidden>
+      <div class="busy-box"><span class="spinner" aria-hidden="true"></span><span id="busy-text"></span></div>
+    </div>
+  </main>
+</div>
+
+<div class="drop" id="drop" hidden><div class="drop-box">Drop to open mesh</div></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.8.3/build/index.module.js"
+  }
+}
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
