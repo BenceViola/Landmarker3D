@@ -208,7 +208,7 @@ These rules follow from the format and apply to the browser app.
 - **Picking** uses `three-mesh-bvh` for fast raycasting on large meshes. A hit gives `position`, the face index, and barycentric weights (via `Triangle.getBarycoord`) for `anchor`, plus the interpolated `normal`.
 - **Hashing** uses `crypto.subtle.digest("SHA-256", …)` on the loaded file buffer. Mesh files are never uploaded; everything stays on the user's machine.
 - **Saving** uses the File System Access API where available (Chrome, Edge), with a download fallback for Firefox and Safari.
-- **3D only.** The app works on meshes. Its templates declare `"dimensions": 3`, and a template with `"dimensions": 2` (or a file with an `image` source) is refused with a message saying it is meant for 2D image landmarking. Files are written as format version `0.2.0`.
+- **3D only.** The app works on meshes. Its templates declare `"dimensions": 3`, and a template with `"dimensions": 2` (or a file with an `image` source) is refused with a message saying it is meant for 2D image landmarking. Files are written as format version `0.2.0`, or `0.3.0` for a replicate after the first (as in the 2D app); re-saving a file from a newer minor version keeps its version. Files up to `0.3` are read.
 
 ## Example (v0.1)
 
