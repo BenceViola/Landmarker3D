@@ -1,9 +1,8 @@
 name: Deploy to GitHub Pages
 
 # Publishes the app after the tests pass on main (same setup as landmarker2D).
-# Pushes made from Claude sessions don't start GitHub's built-in "deploy from
-# a branch" build, so the site is published by this workflow instead.
-# One-time setup: repository Settings → Pages → Source: "GitHub Actions".
+# The repository's Pages source is "GitHub Actions" (Settings → Pages), so
+# nothing is published without this workflow.
 # It can also be started by hand: Actions → Deploy to GitHub Pages → Run workflow.
 on:
   workflow_run:

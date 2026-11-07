@@ -50,7 +50,7 @@ All changes to landmarks and the template go through `Session`, which fires a `c
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main` (Pages source: "GitHub Actions"). Pushes from Claude sessions don't trigger GitHub's "deploy from a branch" build, which is why this workflow exists. The version in the page header (`v0.2`) shows which version is live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source is "GitHub Actions", so nothing is published without this workflow (before it existed, the live site stayed at an old version for hours). The version in the page header (`v0.2`) shows which version is live.
 
 ## Writing for the UI
 
