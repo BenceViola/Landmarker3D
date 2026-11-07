@@ -52,7 +52,7 @@ describe('start-up', () => {
     assert.match(await hint(page), /Click to place\s+LM01\s+Glabella/);
     assert.match(await page.locator('#lm-progress').innerText(), /0\s+of 14 done/);
     assert.equal(await page.locator('.lm-row').count(), 14);
-    await selectTab(page, 'Mesh');
+    await selectTab(page, 'Specimen');
     assert.equal(await page.locator('#file-name').innerText(), 'sample-pebble.stl');
     assert.equal(await page.locator('#format').innerText(), 'STL, binary');
     assert.match(await page.locator('#hash').innerText(), /^[0-9a-f]{64}$/);
@@ -291,7 +291,7 @@ describe('saving and opening landmark files', () => {
 
     page = await start();
     await page.setInputFiles('#open-lmk-input', lmkPath);
-    assert.match(await messageText(page), /Open their mesh, BALL_001\.stl/);
+    assert.match(await messageText(page), /Now open its mesh, BALL_001\.stl/);
     await openMesh(page, files.sphere);
     assert.equal(await rowState(page, 'LM01'), 'Placed');
     assert.equal(await rowState(page, 'LM02'), 'Placed');
@@ -346,21 +346,28 @@ describe('saving and opening landmark files', () => {
     assert.match(await page.locator('#save-status').innerText(), /Unsaved changes/, 'snapped positions need saving');
   });
 
-  test('unsaved landmarks are protected when opening another mesh', async () => {
+  test('opening another mesh adds a specimen; nothing is replaced', async () => {
     const page = await start();
     await openMesh(page, files.sphere);
     await clickAt(page, await canvasCenter(page));
-    await page.setInputFiles('#file-input', files.sphereShifted);
+    await openMesh(page, files.sphereShifted);
+    assert.equal(await rowState(page, 'LM01'), 'To do', 'the new specimen starts empty');
+    await page.keyboard.press('[');
+    await ready(page);
+    assert.equal(await rowState(page, 'LM01'), 'Placed', 'the first specimen kept its landmark');
+    await selectTab(page, 'Specimen');
+    assert.equal(await page.locator('#file-name').innerText(), 'BALL_001.stl');
+  });
+
+  test('the example asks before it replaces specimens with unsaved landmarks', async () => {
+    const page = await start();
+    await openMesh(page, files.sphere);
+    await clickAt(page, await canvasCenter(page));
+    await selectTab(page, 'Specimen');
+    await page.locator('#sample-btn').click();
     assert.match(await messageText(page), /unsaved landmarks/);
     await page.getByRole('button', { name: 'Cancel' }).click();
-    assert.equal(await rowState(page, 'LM01'), 'Placed', 'nothing was replaced');
-
-    await page.setInputFiles('#file-input', files.sphereShifted);
-    await page.getByRole('button', { name: 'Save first' }).click();
-    await waitForSaves(page, 1);
-    await ready(page);
-    await selectTab(page, 'Mesh');
-    assert.equal(await page.locator('#file-name').innerText(), 'BALL_001_v2.stl');
+    assert.equal(await page.locator('#file-name').innerText(), 'BALL_001.stl');
   });
 
   test('a 2D landmark file is refused with an explanation', async () => {
@@ -408,22 +415,25 @@ describe('TPS export', () => {
     const page = await start();
     await openMesh(page, files.sphere);
     await clickAt(page, await canvasCenter(page));
-    await selectTab(page, 'File');
     const a = await saveNow(page);
+    await selectTab(page, 'Specimen');
     await page.locator('#spec-id').fill('BALL_000');
     await page.locator('#spec-id').press('Tab');
-    const b = await saveNow(page);
+    const b = await saveNow(page); // Save writes to the same file again, now with the new ID
+    assert.equal(JSON.parse(b.text).specimen.id, 'BALL_000');
     const pa = await writeText(files.dir, 'a.lmk.json', a.text);
     const pb = await writeText(files.dir, 'b.lmk.json', b.text);
 
     await page.setInputFiles('#combine-input', [pa, pb]);
-    assert.match(await messageText(page), /Combined 2 specimens/);
+    await page.locator('#dialog').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#dialog-content').innerText(), /2 specimens from 1 student/);
     await page.getByRole('button', { name: 'Save TPS file' }).click();
     const all = await waitForSaves(page, 3);
     const tps = all.at(-1);
     assert.equal(tps.name, 'cranium-basic_2_specimens.tps');
     const ids = tps.text.split('\n').filter((l) => l.startsWith('ID='));
     assert.deepEqual(ids, ['ID=BALL_000', 'ID=BALL_001']);
+    await page.getByRole('button', { name: 'Close' }).click();
   });
 });
 

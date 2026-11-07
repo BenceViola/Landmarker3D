@@ -101,18 +101,83 @@ export class Viewer {
     this.scene.background = new THREE.Color(color);
   }
 
-  // Show a new mesh. `source` is kept untouched for later picking and anchors.
-  setGeometry(source, options = {}) {
-    this._clear();
+  // Show a mesh. `source` is kept untouched for later picking and anchors.
+  // `displayCache` holds its display copies (smooth, flat); it belongs to the
+  // caller, which keeps it with the mesh, so switching back is instant.
+  // Nothing is disposed here: the caller decides when a mesh is unloaded.
+  setGeometry(source, { displayCache = {}, view = null, ...options } = {}) {
+    this.clear();
     this.source = source;
-    this.displayCache = {};
+    this.displayCache = displayCache;
     Object.assign(this.options, options);
 
-    source.computeBoundingBox();
+    if (!source.boundingBox) source.computeBoundingBox();
     this.box = source.boundingBox.clone();
 
     this._buildMesh();
+    if (view) this.setView(view);
+    else this.viewFrom('home');
+  }
+
+  // Show nothing (a specimen whose mesh isn't open).
+  clear() {
+    if (this.mesh) this.scene.remove(this.mesh);
+    if (this.wire) this.scene.remove(this.wire);
+    this.mesh = this.wire = this.source = this.box = null;
+    this.displayCache = {};
+  }
+
+  // The camera position, to come back to when switching back to a specimen.
+  getView() {
+    if (!this.box) return null;
+    return {
+      position: this.camera.position.toArray(),
+      target: this.controls.target.toArray(),
+      up: this.camera.up.toArray(),
+    };
+  }
+
+  setView(v) {
+    this.camera.up.fromArray(v.up);
+    this.camera.position.fromArray(v.position);
+    this.controls.target.fromArray(v.target);
+    const dist = this.camera.position.distanceTo(this.controls.target) || 1;
+    const size = this.diagonal;
+    this.camera.near = Math.max(Math.min(dist, size) / 1000, 1e-6);
+    this.camera.far = (dist + size) * 100;
+    this.camera.updateProjectionMatrix();
+    this.camera.lookAt(this.controls.target);
+    this.controls.update();
+  }
+
+  // A small picture of the mesh from the default view, as a data URL, for the
+  // specimen strip. `hide` are scene objects (markers) left out of it.
+  capture(width = 128, height = 96, hide = []) {
+    if (!this.box) return null;
+    const saved = this.getView();
     this.viewFrom('home');
+    const was = hide.map((o) => o.visible);
+    hide.forEach((o) => (o.visible = false));
+    this.renderer.render(this.scene, this.camera);
+    const src = this.renderer.domElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    // Crop the middle of the view to the thumbnail's shape, a little
+    // tighter than the full view so the mesh fills the picture.
+    const scale = Math.min(src.width / width, src.height / height) * 0.8;
+    const sw = width * scale;
+    const sh = height * scale;
+    ctx.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, width, height);
+    hide.forEach((o, i) => (o.visible = was[i]));
+    this.setView(saved);
+    this.renderer.render(this.scene, this.camera);
+    try {
+      return canvas.toDataURL('image/jpeg', 0.85);
+    } catch {
+      return null;
+    }
   }
 
   setSmooth(smooth) {
@@ -200,14 +265,6 @@ export class Viewer {
     this.wire.renderOrder = 1;
     this.scene.add(this.mesh, this.wire);
     this.setVertexColors(this.options.vertexColors && !!g.attributes.color);
-  }
-
-  _clear() {
-    if (this.mesh) this.scene.remove(this.mesh);
-    if (this.wire) this.scene.remove(this.wire);
-    for (const g of Object.values(this.displayCache)) g.dispose();
-    if (this.source) this.source.dispose();
-    this.mesh = this.wire = this.source = this.box = null;
   }
 
   _resize() {

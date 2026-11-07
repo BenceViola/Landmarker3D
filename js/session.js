@@ -1,15 +1,50 @@
-// The landmarking session: the template (what to place, in which order) and
-// the placed points for the current specimen (where they were placed).
-// Field names follow the Landmark JSON spec, so saving later is a direct dump.
-// Every change goes through this class, which keeps undo/redo snapshots and
-// fires a 'change' event that the panels and 3D markers listen to.
+// The landmarking session: a set of specimens sharing one template (what to
+// place, in which order). Each specimen record holds its own points (where
+// they were placed); `points` always means the current specimen's.
+// Field names follow the Landmark JSON spec, so saving is a direct dump.
+// Every change goes through this class, which keeps undo/redo snapshots of
+// the whole set and fires a 'change' event the panels and markers listen to.
 
 export const ADHOC = '+adhoc'; // active "landmark" meaning: the next click adds an ad hoc point
 
-// Landmark JSON format this app writes. v0.2 added 2D image data; this app
-// stays 3D, so its templates declare dimensions 3 and 2D templates are refused.
-export const FORMAT = { name: 'landmark-json', version: '0.2.0' };
+// Landmark JSON format. v0.2 added 2D image data; this app stays 3D, so its
+// templates declare dimensions 3 and 2D templates are refused. v0.3 added the
+// optional specimen.replicate: files are written as 0.2.0, or 0.3.0 for a
+// replicate after the first, and files up to 0.3 are read.
+export const FORMAT = { name: 'landmark-json', version: '0.2.0', replicateVersion: '0.3.0', readVersion: '0.3.0' };
 export const DIMENSIONS = 3;
+
+let uidCounter = 0;
+
+/**
+ * One specimen in the set. `specimen` mirrors the file's specimen object
+ * (id, notes, replicate, mesh: { file, sha256, units, vertex_count,
+ * face_count }); the rest is app state that is never saved as such.
+ */
+export function newRecord(fields = {}) {
+  return {
+    uid: ++uidCounter,
+    specimen: { id: 'specimen' },
+    points: [],
+    file: null, // the mesh File, kept so the mesh can be read again after it is unloaded
+    thumb: null, // small picture of the mesh, as a data URL
+    isSample: false,
+    order: null, // shuffled landmark ids for a replicate placed in random order
+    base: null, // the file as last opened or saved; unknown fields are kept from it
+    handle: null, // where Save writes again (browsers with a Save dialog)
+    created: null,
+    savedName: null,
+    savedAt: null,
+    action: null, // 'opened' | 'saved'
+    dirty: false,
+    ...fields,
+  };
+}
+
+export const replicateOf = (rec) => {
+  const n = rec.specimen?.replicate;
+  return Number.isInteger(n) && n > 0 ? n : 1;
+};
 
 const MAX_UNDO = 200;
 const ID_RE = /^[A-Za-z0-9_.-]+$/;
@@ -59,11 +94,97 @@ export class Session extends EventTarget {
     if (error) throw new Error(error);
     this.template = clone(template);
     this.template.dimensions = DIMENSIONS;
-    this.points = [];
+    this.records = [newRecord()];
+    this.current = this.records[0];
     this.undoStack = [];
     this.redoStack = [];
     this._pendingMove = null;
     this.activeId = this.nextTodo(null);
+  }
+
+  // The current specimen's points.
+  get points() {
+    return this.current.points;
+  }
+  set points(v) {
+    this.current.points = v;
+  }
+
+  // ---- The set -------------------------------------------------------------
+
+  record(uid) {
+    return this.records.find((r) => r.uid === uid) || null;
+  }
+
+  // Add a specimen. `after` puts it right behind that record (replicates
+  // stay next to their specimen). Adding or removing specimens clears undo.
+  addRecord(fields = {}, { after = null } = {}) {
+    const rec = newRecord(fields);
+    const i = after ? this.records.indexOf(after) : -1;
+    if (i >= 0) this.records.splice(i + 1, 0, rec);
+    else this.records.push(rec);
+    this._clearHistory();
+    this._emit('set');
+    return rec;
+  }
+
+  // Replace the whole set, e.g. when real meshes replace the example.
+  replaceRecords(records, template = null) {
+    if (template) {
+      const error = checkTemplate(template);
+      if (error) throw new Error(error);
+      this.template = clone(template);
+      this.template.dimensions = DIMENSIONS;
+    }
+    this.records = records.length ? records : [newRecord()];
+    this.current = this.records[0];
+    this.activeId = this.nextTodo(null);
+    this._clearHistory();
+    this._emit('set');
+  }
+
+  removeRecord(uid) {
+    const i = this.records.findIndex((r) => r.uid === uid);
+    if (i < 0) return;
+    this.records.splice(i, 1);
+    if (!this.records.length) this.records.push(newRecord());
+    if (this.current.uid === uid) {
+      this.current = this.records[Math.min(i, this.records.length - 1)];
+      this.activeId = this.nextTodo(null);
+    }
+    this._clearHistory();
+    this._emit('set');
+  }
+
+  // Make another specimen current. Not an undo step.
+  switchTo(uid) {
+    const rec = this.record(uid);
+    if (!rec || rec === this.current) return false;
+    this.endMove();
+    this.current = rec;
+    this.activeId = this.nextTodo(null);
+    this._emit('switch');
+    return true;
+  }
+
+  // The specimen `delta` places before or after the current one, wrapping round.
+  neighbour(delta) {
+    const n = this.records.length;
+    const i = this.records.indexOf(this.current);
+    return this.records[(i + delta + n) % n];
+  }
+
+  // Template landmarks done (placed, estimated or missing) on a specimen.
+  progressOf(rec = this.current) {
+    const ids = new Set(rec.points.filter((p) => p.template_id !== null).map((p) => p.template_id));
+    const total = this.template.landmarks.length;
+    const done = this.template.landmarks.filter((d) => ids.has(d.id)).length;
+    return { done, total };
+  }
+
+  // Does any specimen have a point for this landmark id?
+  hasData(id) {
+    return this.records.some((r) => r.points.some((p) => p.id === id || p.template_id === id));
   }
 
   // ---- Reading -----------------------------------------------------------
@@ -108,8 +229,11 @@ export class Session extends EventTarget {
   }
 
   // Next template landmark without an entry, after `afterId`, wrapping round.
+  // A replicate placed in random order follows its own shuffled order.
   nextTodo(afterId) {
-    const ids = this.template.landmarks.map((d) => d.id);
+    const known = new Set(this.template.landmarks.map((d) => d.id));
+    const order = this.current.order?.filter((id) => known.has(id));
+    const ids = order?.length === known.size ? order : [...known];
     if (!ids.length) return null;
     const start = afterId ? ids.indexOf(afterId) + 1 : 0;
     for (let k = 0; k < ids.length; k++) {
@@ -128,28 +252,45 @@ export class Session extends EventTarget {
     return this.redoStack.length > 0;
   }
 
+  // Undo and redo go back to the specimen the change was made on;
+  // the event's `switched` says when that changed the current specimen.
   undo() {
     if (!this.canUndo) return;
+    const before = this.current;
     this.redoStack.push(this._snapshot());
     this._restore(this.undoStack.pop());
-    this._emit('undo');
+    this._emit('undo', { switched: this.current !== before });
   }
 
   redo() {
     if (!this.canRedo) return;
+    const before = this.current;
     this.undoStack.push(this._snapshot());
     this._restore(this.redoStack.pop());
-    this._emit('redo');
+    this._emit('redo', { switched: this.current !== before });
   }
 
+  // The whole set: a template edit can change every specimen's points.
   _snapshot() {
-    return JSON.stringify({ template: this.template, points: this.points, activeId: this.activeId });
+    return JSON.stringify({
+      template: this.template,
+      points: this.records.map((r) => [r.uid, r.points]),
+      current: this.current.uid,
+      activeId: this.activeId,
+    });
   }
 
   _restore(snapshot) {
     const s = JSON.parse(snapshot);
     this.template = s.template;
-    this.points = s.points;
+    for (const [uid, points] of s.points) {
+      const rec = this.record(uid);
+      if (rec) {
+        rec.points = points;
+        rec.dirty = true;
+      }
+    }
+    this.current = this.record(s.current) || this.current;
     this.activeId = s.activeId;
   }
 
@@ -159,8 +300,14 @@ export class Session extends EventTarget {
     this.redoStack = [];
   }
 
-  _emit(kind) {
-    this.dispatchEvent(new CustomEvent('change', { detail: { kind } }));
+  _clearHistory() {
+    this.undoStack = [];
+    this.redoStack = [];
+    this._pendingMove = null;
+  }
+
+  _emit(kind, extra = {}) {
+    this.dispatchEvent(new CustomEvent('change', { detail: { kind, ...extra } }));
   }
 
   // ---- Landmarks -----------------------------------------------------------
@@ -270,12 +417,13 @@ export class Session extends EventTarget {
     this._emit('note');
   }
 
-  // Replace template and points with those from an opened landmark file.
+  // Replace the template and the current specimen's points with those from
+  // an opened landmark file.
   load(template, points) {
     this.template = clone(template);
+    this.template.dimensions = DIMENSIONS;
     this.points = clone(points);
-    this.undoStack = [];
-    this.redoStack = [];
+    this._clearHistory();
     this.activeId = this.nextTodo(null);
     this._emit('load');
   }
@@ -286,11 +434,10 @@ export class Session extends EventTarget {
     if (p) Object.assign(p, fields);
   }
 
-  // New specimen: keep the template, drop all points and history.
+  // Clear the current specimen's points and all history; keep the template.
   resetPoints() {
     this.points = [];
-    this.undoStack = [];
-    this.redoStack = [];
+    this._clearHistory();
     this.activeId = this.nextTodo(null);
     this._emit('reset');
   }
@@ -339,8 +486,8 @@ export class Session extends EventTarget {
       if (newId !== id) {
         if (!newId) return 'Every landmark needs an ID.';
         if (!ID_RE.test(newId)) return 'IDs can only use letters, digits, “-”, “_” and “.”.';
-        if (this.def(newId) || this.point(newId)) return `${newId} is already used.`;
-        if (this.point(id)) return 'This landmark already has data, so its ID can’t change.';
+        if (this.def(newId) || this.hasData(newId)) return `${newId} is already used.`;
+        if (this.hasData(id)) return 'This landmark already has data, so its ID can’t change.';
       }
     }
     const name = 'name' in patch ? patch.name.trim() : def.name;
@@ -366,7 +513,11 @@ export class Session extends EventTarget {
     if (i < 0) return;
     this._commit();
     this.template.landmarks.splice(i, 1);
-    this.points = this.points.filter((p) => p.template_id !== id);
+    for (const r of this.records) {
+      const kept = r.points.filter((p) => p.template_id !== id);
+      if (kept.length !== r.points.length) r.dirty = true;
+      r.points = kept;
+    }
     for (const d of this.template.landmarks) if (d.bilateral_pair === id) delete d.bilateral_pair;
     if (this.activeId === id) this.activeId = this.nextTodo(null);
     this._emit('template');
@@ -406,7 +557,10 @@ export class Session extends EventTarget {
   newTemplate() {
     this._commit();
     this.template = { id: 'untitled', name: 'Untitled template', version: '1.0', dimensions: DIMENSIONS, landmarks: [] };
-    this.points = [];
+    for (const r of this.records) {
+      if (r.points.length) r.dirty = true;
+      r.points = [];
+    }
     this.activeId = null;
     this._emit('template');
   }
@@ -421,7 +575,7 @@ export class Session extends EventTarget {
     do {
       n++;
       id = `LM${String(n).padStart(2, '0')}`;
-    } while (this.def(id) || this.point(id));
+    } while (this.def(id) || this.hasData(id));
     return id;
   }
 }

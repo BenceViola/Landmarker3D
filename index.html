@@ -31,6 +31,9 @@
     --m-estimated: #d98a00;
     --m-active: #e0337a;
     --m-missing: #8a909b;
+    /* Progress badges on the specimen strip: white text on both, in both themes */
+    --badge-todo: #c0362c;
+    --badge-done: #23794a;
 
     --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
     --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -490,6 +493,12 @@
   .hash-row .btn { align-self: flex-start; }
 
   /* ---- Viewport ---- */
+  .viewport {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-width: 0;
+    min-height: 0;
+  }
   .stage {
     position: relative;
     min-width: 0;
@@ -602,6 +611,108 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ---- Specimen strip ---- */
+  .strip {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px 12px;
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .thumb {
+    position: relative;
+    flex: none;
+    width: 112px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font: 12px var(--font-body);
+    text-align: left;
+    cursor: pointer;
+  }
+  .thumb:hover { border-color: var(--muted); }
+  .thumb[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .thumb .pic {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border-radius: 3px;
+    background: var(--viewport);
+    object-fit: cover;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.3;
+    text-align: center;
+    padding: 4px;
+  }
+  img.pic { padding: 0; }
+  .thumb .count {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--badge-todo);
+    color: #fff;
+    font: 600 11px/1.4 var(--font-data);
+    font-variant-numeric: tabular-nums;
+  }
+  .thumb .count.done { background: var(--badge-done); }
+  .thumb .cap {
+    font-family: var(--font-data);
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .thumb .cap .rep { color: var(--muted); }
+  .thumb.add {
+    justify-content: center;
+    align-items: center;
+    min-height: 96px;
+    border-style: dashed;
+    color: var(--accent);
+    font-weight: 500;
+    text-align: center;
+  }
+  .h-aside { font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 12px; }
+
+  /* ---- Messages with details, dialog ---- */
+  .message ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+  .dialog {
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
+  }
+  .dialog::backdrop { background: rgb(0 0 0 / 0.35); }
+  .dialog-body { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; }
+  .dialog h2 { font-family: var(--font-display); font-size: 19px; text-transform: none; letter-spacing: 0; color: var(--fg); }
+  .dialog p { margin: 0; }
+  .dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  .table-wrap { overflow-x: auto; max-height: 50vh; }
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .data-table th, .data-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+  .data-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+  .data-table .num { text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  .data-table tr.flag td { background: var(--note-bg); }
+  .chip { display: inline-block; padding: 0 6px; border-radius: 999px; background: var(--note-fg); color: var(--surface); font-size: 10.5px; font-weight: 600; }
+  .bad { color: var(--danger); }
+  .ok { color: var(--badge-done); }
+
   .drop {
     position: fixed;
     inset: 0;
@@ -623,8 +734,8 @@
   }
 
   @media (max-width: 760px) {
-    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 60vh auto; height: auto; }
-    .stage { order: -1; }
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; height: auto; }
+    .viewport { order: -1; height: 72vh; }
     .panel { border-right: 0; }
     .panel-head, .tabpanel { padding-right: max(16px, env(safe-area-inset-right, 0px)); }
     .tabpanel { overflow: visible; }
@@ -642,17 +753,17 @@
   <aside class="panel">
     <div class="panel-head">
       <header class="brand">
-        <h1>Landmarker <span class="ver">v0.1</span></h1>
+        <h1>Landmarker <span class="ver">v0.2</span></h1>
         <div class="head-actions">
-          <input type="file" id="file-input" class="file-input" accept=".stl,.ply">
-          <label for="file-input" class="btn primary">Open mesh…</label>
+          <input type="file" id="file-input" class="file-input" accept=".stl,.ply" multiple>
+          <label for="file-input" class="btn primary" title="Open one or more meshes; each becomes a specimen">Open meshes…</label>
           <button type="button" class="btn" id="save-btn">Save</button>
         </div>
       </header>
       <div class="tablist" role="tablist" aria-label="Panel">
         <button type="button" class="tab" role="tab" id="t-landmarks" aria-controls="tab-landmarks" aria-selected="true">Landmarks</button>
         <button type="button" class="tab" role="tab" id="t-template" aria-controls="tab-template" aria-selected="false" tabindex="-1">Template</button>
-        <button type="button" class="tab" role="tab" id="t-mesh" aria-controls="tab-mesh" aria-selected="false" tabindex="-1">Mesh</button>
+        <button type="button" class="tab" role="tab" id="t-specimen" aria-controls="tab-specimen" aria-selected="false" tabindex="-1">Specimen</button>
         <button type="button" class="tab" role="tab" id="t-file" aria-controls="tab-file" aria-selected="false" tabindex="-1">File</button>
       </div>
     </div>
@@ -689,6 +800,7 @@
           <dt>drag marker</dt><dd>move it over the surface</dd>
           <dt>drag</dt><dd>rotate (right-drag: pan, scroll: zoom)</dd>
           <dt>N / P</dt><dd>next / previous landmark</dd>
+          <dt>[ · ]</dt><dd>previous · next specimen</dd>
           <dt>M · E · Del</dt><dd>missing · estimated · clear</dd>
           <dt>Ctrl/⌘ Z</dt><dd>undo (add Shift to redo)</dd>
           <dt>Ctrl/⌘ S</dt><dd>save the landmark file</dd>
@@ -702,14 +814,27 @@
       <div id="template-editor"></div>
     </div>
 
-    <!-- Mesh -->
-    <div class="tabpanel" role="tabpanel" id="tab-mesh" aria-labelledby="t-mesh" hidden>
+    <!-- Specimen -->
+    <div class="tabpanel" role="tabpanel" id="tab-specimen" aria-labelledby="t-specimen" hidden>
+      <section aria-labelledby="spec-h">
+        <h2 id="spec-h">Specimen <span class="h-aside" id="spec-pos"></span></h2>
+        <label class="field-stack">Specimen ID
+          <input type="text" id="spec-id" class="mono" placeholder="e.g. SKULL_014">
+        </label>
+        <label class="field-stack">Notes
+          <textarea id="spec-notes" rows="2" placeholder="e.g. Left zygomatic arch broken"></textarea>
+        </label>
+      </section>
+
+      <section id="rep-section" aria-labelledby="rep-h"></section>
+
       <section aria-labelledby="mesh-h">
         <h2 id="mesh-h">Mesh</h2>
         <div class="file-head">
           <p id="file-name" class="file-name">No mesh loaded</p>
           <span id="sample-tag" class="tag" hidden>Example</span>
         </div>
+        <p class="hint" id="mesh-waiting" hidden></p>
         <dl class="stats">
           <dt>Format</dt><dd id="format">–</dd>
           <dt>Triangles</dt><dd id="faces">–</dd>
@@ -748,82 +873,113 @@
         </label>
       </section>
 
-      <section aria-labelledby="open-h">
-        <h2 id="open-h">Files</h2>
+      <section aria-labelledby="set-h">
+        <h2 id="set-h">Specimen set</h2>
+        <p class="hint">Every specimen in the set uses the same template. Up to three meshes are kept in memory; the others are read again from their files when you switch to them.</p>
+        <div id="remove-spec"></div>
         <div class="open-row">
-          <button type="button" id="sample-btn" class="btn">Load example mesh</button>
+          <button type="button" id="sample-btn" class="btn small">Load example mesh</button>
         </div>
-        <p class="hint">You can also drop an STL or PLY file anywhere on the page. Meshes are read on this computer and never uploaded.</p>
       </section>
     </div>
+
     <!-- File -->
     <div class="tabpanel" role="tabpanel" id="tab-file" aria-labelledby="t-file" hidden>
-      <section aria-labelledby="spec-h">
-        <h2 id="spec-h">Specimen</h2>
-        <label class="field-stack">Specimen ID
-          <input type="text" id="spec-id" class="mono" placeholder="e.g. SKULL_014">
+      <section aria-labelledby="op-h">
+        <h2 id="op-h">Operator</h2>
+        <label class="field-stack">Your name or student number
+          <input type="text" id="operator" placeholder="e.g. student07">
         </label>
-        <label class="field-stack">Operator
-          <input type="text" id="operator" placeholder="Your name or student number">
-        </label>
-        <label class="field-stack">Notes
-          <textarea id="spec-notes" rows="2" placeholder="e.g. Left zygomatic arch broken"></textarea>
-        </label>
+        <p class="hint">Written into every landmark file and hand-in.</p>
       </section>
 
       <section aria-labelledby="lmk-h">
-        <h2 id="lmk-h">Landmark file</h2>
+        <h2 id="lmk-h">Landmark file for this specimen</h2>
         <p class="save-status" id="save-status" role="status"></p>
         <div class="open-row">
           <button type="button" class="btn primary" id="save-file">Save</button>
           <button type="button" class="btn" id="save-as">Save as…</button>
-          <input type="file" id="open-lmk-input" class="file-input" accept=".json,application/json">
-          <label for="open-lmk-input" class="btn">Open landmark file…</label>
         </div>
-        <p class="hint">Saved as <span class="mono">.lmk.json</span> with the template, the mesh’s SHA-256 and every point. When you open one, the app checks it belongs to the open mesh. You can also drop a mesh and its landmark file on the page together.</p>
+        <p class="hint">Saved as <span class="mono">.lmk.json</span> with the template, the mesh’s SHA-256 and every point.</p>
+      </section>
+
+      <section aria-labelledby="open-h">
+        <h2 id="open-h">Open</h2>
+        <div class="open-row">
+          <input type="file" id="open-lmk-input" class="file-input" accept=".json,.zip,application/json,application/zip" multiple>
+          <label for="open-lmk-input" class="btn">Open landmark files or hand-in…</label>
+        </div>
+        <p class="hint">Each file becomes a specimen in the set, matched to its mesh by the mesh’s SHA-256. Then open the meshes (you can select them all at once). You can also drop meshes, landmark files and hand-in zips on the page.</p>
+      </section>
+
+      <section aria-labelledby="handin-h">
+        <h2 id="handin-h">Hand-in</h2>
+        <div class="open-row">
+          <button type="button" class="btn primary" id="handin-btn">Download hand-in</button>
+        </div>
+        <p class="hint">One zip with a landmark file for every specimen, plus all of them as one TPS and one CSV file. Open the zip again to carry on where you left off.</p>
       </section>
 
       <section aria-labelledby="tps-h">
-        <h2 id="tps-h">TPS export</h2>
+        <h2 id="tps-h">Export</h2>
         <div class="open-row">
           <button type="button" class="btn" id="export-tps">Export TPS</button>
-          <input type="file" id="combine-input" class="file-input" accept=".json,application/json" multiple>
-          <label for="combine-input" class="btn">Combine files into one TPS…</label>
+          <button type="button" class="btn" id="export-csv">Export CSV</button>
         </div>
         <div class="field">
-          <label class="field-label" for="tps-missing">Missing value<small>written as x, y and z</small></label>
+          <label class="field-label" for="tps-missing">Missing value in TPS<small>written as x, y and z</small></label>
           <input type="text" id="tps-missing" class="mono tps-missing" value="-999">
         </div>
         <label class="toggle">Include ad hoc points
           <input type="checkbox" id="tps-adhoc" checked><span class="switch"></span>
         </label>
-        <p class="hint">Rows follow the template order (<span class="mono">LM3=</span> blocks, one per specimen, with <span class="mono">ID=</span>). Coordinates are in mesh units, unaligned. To combine, choose several saved landmark files made with the same template.</p>
+        <p class="hint">All specimens in the set, in template order: one <span class="mono">LM3=</span> block per specimen in TPS, one row per point in CSV. Coordinates are in mesh units, unaligned.</p>
+      </section>
+
+      <section aria-labelledby="combine-h">
+        <h2 id="combine-h">Combine hand-ins</h2>
+        <div class="open-row">
+          <input type="file" id="combine-input" class="file-input" accept=".json,.zip,application/json,application/zip" multiple>
+          <label for="combine-input" class="btn">Combine hand-ins…</label>
+        </div>
+        <p class="hint">For instructors: choose the zips (or landmark files) students handed in to get one TPS and one CSV file. The specimens open here are not changed.</p>
       </section>
     </div>
   </aside>
 
-  <main class="stage" id="stage" aria-label="3D view">
-    <div class="stage-top">
-      <p class="stage-hint" id="stage-hint" hidden></p>
-      <div class="viewbar" role="toolbar" aria-label="View along mesh axes">
-        <button type="button" data-view="+x" title="View from +X">+X</button>
-        <button type="button" data-view="-x" title="View from −X">−X</button>
-        <button type="button" data-view="+y" title="View from +Y">+Y</button>
-        <button type="button" data-view="-y" title="View from −Y">−Y</button>
-        <button type="button" data-view="+z" title="View from +Z">+Z</button>
-        <button type="button" data-view="-z" title="View from −Z">−Z</button>
-        <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="fit" id="fit-btn" title="Fit to view (F)">Fit</button>
+  <div class="viewport">
+    <main class="stage" id="stage" aria-label="3D view">
+      <div class="stage-top">
+        <p class="stage-hint" id="stage-hint" hidden></p>
+        <div class="viewbar" role="toolbar" aria-label="View along mesh axes">
+          <button type="button" data-view="+x" title="View from +X">+X</button>
+          <button type="button" data-view="-x" title="View from −X">−X</button>
+          <button type="button" data-view="+y" title="View from +Y">+Y</button>
+          <button type="button" data-view="-y" title="View from −Y">−Y</button>
+          <button type="button" data-view="+z" title="View from +Z">+Z</button>
+          <button type="button" data-view="-z" title="View from −Z">−Z</button>
+          <span class="sep" aria-hidden="true"></span>
+          <button type="button" class="fit" id="fit-btn" title="Fit to view (F)">Fit</button>
+        </div>
       </div>
-    </div>
-    <p class="space-note"><span id="stage-file"></span> · coordinates in mesh file space</p>
-    <div class="busy" id="busy" hidden>
-      <div class="busy-box"><span class="spinner" aria-hidden="true"></span><span id="busy-text"></span></div>
-    </div>
-  </main>
+      <p class="space-note"><span id="stage-file"></span> · coordinates in mesh file space</p>
+      <div class="busy" id="busy" hidden>
+        <div class="busy-box"><span class="spinner" aria-hidden="true"></span><span id="busy-text"></span></div>
+      </div>
+    </main>
+    <div class="strip" id="strip" role="group" aria-label="Specimens ([ and ] to switch)"></div>
+  </div>
 </div>
 
-<div class="drop" id="drop" hidden><div class="drop-box">Drop to open mesh</div></div>
+<div class="drop" id="drop" hidden><div class="drop-box">Drop meshes, landmark files or a hand-in zip</div></div>
+
+<dialog class="dialog" id="dialog" aria-labelledby="dialog-title">
+  <div class="dialog-body">
+    <h2 id="dialog-title"></h2>
+    <div id="dialog-content"></div>
+    <div class="dialog-actions" id="dialog-actions"></div>
+  </div>
+</dialog>
 
 <script type="importmap">
 {

@@ -1,4 +1,5 @@
-// Reading and writing Landmark JSON files (.lmk.json), format v0.2.
+// Reading and writing Landmark JSON files (.lmk.json). Files are written as
+// format 0.2.0, or 0.3.0 for replicates; files up to 0.3 are read.
 //
 // Writing starts from the file that was opened, if any, so fields this app
 // doesn't know about (curves, surfaces, extensions, extra keys) survive a
@@ -44,8 +45,38 @@ function cleanPoint(p) {
   return out;
 }
 
-// Build the file text. `base` is the parsed file that was opened (or last saved).
-export function buildLandmarkFile({ session, mesh, units, specimenId, notes, operator, base, created }) {
+// The higher of two MAJOR.MINOR.PATCH strings; `b` wins if `a` is missing or malformed.
+export function newerVersion(a, b) {
+  const parse = (v) => (typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v) ? v.split('.').map(Number) : null);
+  const x = parse(a);
+  const y = parse(b);
+  if (!x) return b;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? a : b;
+  return b;
+}
+
+// The mesh fields of `specimen.mesh`, from a loaded mesh ({ name, sha256,
+// vertexCount, faceCount }) or from stored ones ({ file, sha256, ... }).
+function meshFields(mesh, units) {
+  return {
+    file: mesh.file ?? mesh.name,
+    sha256: mesh.sha256,
+    units: units ?? mesh.units ?? 'mm',
+    vertex_count: mesh.vertex_count ?? mesh.vertexCount,
+    face_count: mesh.face_count ?? mesh.faceCount,
+  };
+}
+
+/**
+ * Build the file text. `base` is the parsed file that was opened (or last
+ * saved). Template and points come from `template`/`points`, or from a
+ * `session` (its current specimen). `replicate` > 1 makes it a replicate
+ * file, which needs format 0.3.0 (spec: Replicates).
+ */
+export function buildLandmarkFile({
+  session, template = session?.template, points = session?.points,
+  mesh, units, specimenId, notes, operator, base, created, replicate = 1,
+}) {
   const b = base ? clone(base) : {};
 
   const specimen = { ...(b.specimen || {}) };
@@ -53,13 +84,9 @@ export function buildLandmarkFile({ session, mesh, units, specimenId, notes, ope
   specimen.id = specimenId;
   if (notes) specimen.notes = notes;
   else delete specimen.notes;
-  specimen.mesh = {
-    file: mesh.name,
-    sha256: mesh.sha256,
-    units,
-    vertex_count: mesh.vertexCount,
-    face_count: mesh.faceCount,
-  };
+  if (replicate > 1) specimen.replicate = replicate;
+  else delete specimen.replicate;
+  specimen.mesh = meshFields(mesh, units);
   // Unknown mesh fields from the opened file go after the known ones.
   for (const [k, v] of Object.entries(b.specimen?.mesh || {})) {
     if (!(k in specimen.mesh)) specimen.mesh[k] = v;
@@ -76,17 +103,21 @@ export function buildLandmarkFile({ session, mesh, units, specimenId, notes, ope
   else delete provenance.operator;
 
   // Spec order first, then any other top-level keys from the opened file.
+  // A file re-saved from a newer minor version keeps that version, since its
+  // extra fields are kept too.
+  const version = newerVersion(b.version, replicate > 1 ? FORMAT.replicateVersion : FORMAT.version);
   const doc = {
     format: FORMAT.name,
-    version: FORMAT.version,
+    version,
     specimen: {
       id: specimen.id,
       ...(specimen.notes ? { notes: specimen.notes } : {}),
+      ...(specimen.replicate ? { replicate: specimen.replicate } : {}),
       mesh: specimen.mesh,
       ...specimen,
     },
-    template: clone(session.template),
-    landmarks: orderedPoints(session.template, session.points).map(cleanPoint),
+    template: clone(template),
+    landmarks: orderedPoints(template, points).map(cleanPoint),
   };
   for (const [k, v] of Object.entries(b)) {
     if (!(k in doc) && k !== 'provenance' && k !== 'extensions') doc[k] = v;
@@ -123,12 +154,12 @@ export function parseLandmarkFile(text, name) {
   const warnings = [];
   const m = /^(\d+)\.(\d+)/.exec(String(doc.version || ''));
   if (!m) throw new LandmarkFileError(`“${name}” has no readable format version.`);
-  const [ourMajor, ourMinor] = FORMAT.version.split('.').map(Number);
+  const [ourMajor, ourMinor] = FORMAT.readVersion.split('.').map(Number);
   const major = Number(m[1]);
   const minor = Number(m[2]);
   if (major !== ourMajor) {
     throw new LandmarkFileError(
-      `“${name}” uses format version ${doc.version}, which this app (format ${FORMAT.version}) can’t read safely. Open it with a matching version of the app.`
+      `“${name}” uses format version ${doc.version}, which this app (format ${FORMAT.readVersion}) can’t read safely. Open it with a matching version of the app.`
     );
   }
   if (minor > ourMinor) {
@@ -185,6 +216,11 @@ export function parseLandmarkFile(text, name) {
     }
     seen.add(pt.id);
     points.push(pt);
+  }
+  const rep = doc.specimen.replicate;
+  if (rep !== undefined && !(Number.isInteger(rep) && rep > 0)) {
+    warnings.push(`Its replicate number (${JSON.stringify(rep)}) isn’t a whole number of 1 or more, so it is treated as replicate 1.`);
+    delete doc.specimen.replicate;
   }
   if (skipped) warnings.push(`${skipped} landmark entr${skipped === 1 ? 'y was' : 'ies were'} unreadable and left out.`);
   if (unlinked) warnings.push(`${unlinked} point${unlinked === 1 ? '' : 's'} referred to landmarks not in the template and became ad hoc points.`);

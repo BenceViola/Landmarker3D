@@ -34,17 +34,18 @@ const inFrame = (() => {
 export const canSaveInPlace = !inFrame && typeof window.showSaveFilePicker === 'function';
 
 /**
- * Save text. Resolves to { status: 'saved' | 'downloaded' | 'cancelled', name, handle }.
+ * Save a file. Resolves to { status: 'saved' | 'downloaded' | 'cancelled', name, handle }.
+ *   data           text, or bytes (Uint8Array) for a zip
  *   filename       suggested name
  *   frameFilename  name to use with the claude.ai download capability, which
  *                  only accepts some extensions (e.g. not .tps)
  *   handle         a handle from an earlier save, to overwrite that file
  *   types          file types for the Save dialog
  */
-export async function saveText({ filename, text, frameFilename = filename, handle = null, types }) {
+export async function saveFile({ filename, data, frameFilename = filename, handle = null, types }) {
   if (handle) {
     try {
-      await writeHandle(handle, text);
+      await writeHandle(handle, data);
       return { status: 'saved', name: handle.name, handle };
     } catch (err) {
       if (err?.name === 'AbortError') return { status: 'cancelled' };
@@ -55,7 +56,7 @@ export async function saveText({ filename, text, frameFilename = filename, handl
   if (canSaveInPlace) {
     try {
       const h = await window.showSaveFilePicker({ suggestedName: filename, types });
-      await writeHandle(h, text);
+      await writeHandle(h, data);
       return { status: 'saved', name: h.name, handle: h };
     } catch (err) {
       if (err?.name === 'AbortError') return { status: 'cancelled' };
@@ -65,7 +66,7 @@ export async function saveText({ filename, text, frameFilename = filename, handl
   const downloads = await downloadsCapability();
   if (downloads) {
     try {
-      await downloads.save({ filename: frameFilename, data: text });
+      await downloads.save({ filename: frameFilename, data });
       return { status: 'downloaded', name: frameFilename };
     } catch (err) {
       if (err?.code === 'declined') return { status: 'cancelled' };
@@ -74,7 +75,8 @@ export async function saveText({ filename, text, frameFilename = filename, handl
     }
   }
 
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  const type = typeof data === 'string' ? 'text/plain;charset=utf-8' : 'application/octet-stream';
+  const url = URL.createObjectURL(new Blob([data], { type }));
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
@@ -85,8 +87,8 @@ export async function saveText({ filename, text, frameFilename = filename, handl
   return { status: 'downloaded', name: filename };
 }
 
-async function writeHandle(handle, text) {
+async function writeHandle(handle, data) {
   const w = await handle.createWritable();
-  await w.write(text);
+  await w.write(data);
   await w.close();
 }

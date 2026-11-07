@@ -26,12 +26,18 @@ export class Picker {
     this._c = new THREE.Vector3();
   }
 
+  // Building the BVH takes a moment on large meshes, so it stays on the
+  // geometry and is reused when switching back to that mesh. The mesh store
+  // disposes it when the mesh is unloaded.
   setGeometry(geometry) {
-    if (this.mesh) this.mesh.geometry.disposeBoundsTree?.();
-    geometry.computeBoundsTree({ indirect: true });
+    if (!geometry.boundsTree) geometry.computeBoundsTree({ indirect: true });
     // Never rendered; only used for ray tests. DoubleSide so inner walls can be picked.
     this.mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
     this.mesh.updateMatrixWorld(true);
+  }
+
+  clear() {
+    this.mesh = null;
   }
 
   // The camera ray under a screen position.
@@ -67,6 +73,7 @@ export class Picker {
 
   // True when the surface lies between `from` and `point`.
   isHidden(point, from, margin) {
+    if (!this.mesh) return false;
     const dir = point.clone().sub(from);
     const dist = dir.length();
     if (dist === 0) return false;

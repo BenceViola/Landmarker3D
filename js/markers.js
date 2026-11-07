@@ -59,7 +59,9 @@ export class Markers {
   sync() {
     const s = this.session;
     const seen = new Set();
-    for (const p of s.points) {
+    // No mesh on screen (a specimen waiting for its mesh): no markers.
+    const points = this.picker.mesh ? s.points : [];
+    for (const p of points) {
       if (!p.position) continue;
       seen.add(p.id);
       let item = this.items.get(p.id);

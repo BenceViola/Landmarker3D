@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { Session, ADHOC, EXAMPLE_TEMPLATE, checkTemplate, DIMENSIONS, FORMAT } from '../../js/session.js';
+import { Session, ADHOC, EXAMPLE_TEMPLATE, checkTemplate, DIMENSIONS, FORMAT, newRecord, replicateOf } from '../../js/session.js';
 import { hit, SMALL_TEMPLATE } from '../fixtures.js';
 
 const fresh = () => new Session(SMALL_TEMPLATE);
@@ -426,5 +426,136 @@ describe('loading and resetting', () => {
     assert.equal(s.points.length, 0);
     assert.equal(s.canUndo, false);
     assert.equal(s.activeId, 'LM01');
+  });
+});
+
+describe('specimen sets', () => {
+  const twoSpecimens = () => {
+    const s = fresh();
+    s.current.specimen = { id: 'A' };
+    const b = s.addRecord({ specimen: { id: 'B' } });
+    return { s, a: s.records[0], b };
+  };
+
+  test('each specimen has its own points; points means the current one', () => {
+    const { s, a, b } = twoSpecimens();
+    s.place('LM01', hit(1));
+    s.switchTo(b.uid);
+    assert.equal(s.points.length, 0);
+    assert.equal(s.activeId, 'LM01', 'starts at the first landmark still to do');
+    s.place('LM02', hit(2));
+    assert.deepEqual(a.points.map((p) => p.id), ['LM01']);
+    assert.deepEqual(b.points.map((p) => p.id), ['LM02']);
+    assert.deepEqual(s.progressOf(a), { done: 1, total: 3 });
+  });
+
+  test('switching is not an undo step and reports whether it changed anything', () => {
+    const { s, b } = twoSpecimens();
+    assert.equal(s.switchTo(b.uid), true);
+    assert.equal(s.switchTo(b.uid), false);
+    assert.equal(s.canUndo, false);
+  });
+
+  test('neighbour wraps round', () => {
+    const { s, a, b } = twoSpecimens();
+    assert.equal(s.neighbour(1), b);
+    assert.equal(s.neighbour(-1), b);
+    s.switchTo(b.uid);
+    assert.equal(s.neighbour(1), a);
+  });
+
+  test('undo goes back to the specimen the change was made on', () => {
+    const { s, a, b } = twoSpecimens();
+    s.place('LM01', hit(1));
+    s.switchTo(b.uid);
+    const kinds = [];
+    s.addEventListener('change', (e) => kinds.push(e.detail));
+    s.undo();
+    assert.equal(s.current, a);
+    assert.equal(a.points.length, 0);
+    assert.deepEqual(kinds, [{ kind: 'undo', switched: true }]);
+  });
+
+  test('template edits act on every specimen', () => {
+    const { s, a, b } = twoSpecimens();
+    s.place('LM02', hit(1));
+    s.switchTo(b.uid);
+    assert.match(s.updateDef('LM02', { id: 'ZYL' }), /already has data/, 'locked by data on another specimen');
+    s.place('LM02', hit(2));
+    s.removeDef('LM02');
+    assert.equal(a.points.length, 0);
+    assert.equal(b.points.length, 0);
+    assert.equal(a.dirty, true, 'changed files need saving');
+    s.undo();
+    assert.equal(a.points.length, 1);
+    assert.equal(b.points.length, 1);
+  });
+
+  test('new ids skip ids used by any specimen', () => {
+    const { s, b } = twoSpecimens();
+    s.switchTo(b.uid);
+    s.records[0].points.push({ id: 'LM04', template_id: null, status: 'placed', position: [0, 0, 0] });
+    s.addDefs(['New']);
+    assert.equal(s.template.landmarks.at(-1).id, 'LM05');
+  });
+
+  test('newTemplate clears every specimen', () => {
+    const { s, a, b } = twoSpecimens();
+    s.place('LM01', hit(1));
+    s.switchTo(b.uid);
+    s.place('LM01', hit(1));
+    s.newTemplate();
+    assert.equal(a.points.length + b.points.length, 0);
+  });
+
+  test('adding after a record keeps replicates together; adding clears undo', () => {
+    const { s, a } = twoSpecimens();
+    s.place('LM01', hit(1));
+    const r2 = s.addRecord({ specimen: { id: 'A', replicate: 2 } }, { after: a });
+    assert.deepEqual(s.records.map((r) => r.specimen.id), ['A', 'A', 'B']);
+    assert.equal(s.records[1], r2);
+    assert.equal(s.canUndo, false);
+  });
+
+  test('removing the current specimen moves to a neighbour; the last one is replaced by an empty one', () => {
+    const { s, a, b } = twoSpecimens();
+    s.switchTo(b.uid);
+    s.removeRecord(b.uid);
+    assert.equal(s.current, a);
+    s.removeRecord(a.uid);
+    assert.equal(s.records.length, 1);
+    assert.equal(s.points.length, 0);
+  });
+
+  test('replaceRecords swaps the set and can bring a new template', () => {
+    const s = fresh();
+    s.place('LM01', hit(1));
+    const recs = [newRecord({ specimen: { id: 'X' } })];
+    s.replaceRecords(recs, EXAMPLE_TEMPLATE);
+    assert.equal(s.current.specimen.id, 'X');
+    assert.equal(s.template.id, 'cranium-basic');
+    assert.throws(() => s.replaceRecords([], { ...SMALL_TEMPLATE, dimensions: 2 }), /2D template/);
+  });
+
+  test('a shuffled order decides what comes next', () => {
+    const s = fresh();
+    s.current.order = ['LM03', 'LM01', 'LM02'];
+    s.activeId = s.nextTodo(null);
+    assert.equal(s.activeId, 'LM03');
+    s.place('LM03', hit(1));
+    assert.equal(s.activeId, 'LM01');
+    s.place('LM01', hit(1));
+    assert.equal(s.activeId, 'LM02');
+  });
+
+  test('an outdated shuffled order (template changed) falls back to template order', () => {
+    const s = fresh();
+    s.current.order = ['LM03', 'LM01'];
+    assert.equal(s.nextTodo(null), 'LM01');
+  });
+
+  test('replicateOf reads specimen.replicate', () => {
+    assert.equal(replicateOf(newRecord()), 1);
+    assert.equal(replicateOf(newRecord({ specimen: { id: 'A', replicate: 2 } })), 2);
   });
 });

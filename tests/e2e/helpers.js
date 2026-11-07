@@ -2,7 +2,7 @@
 // three.js for the locally installed ones, and captures files the app saves.
 
 import { createServer } from 'node:http';
-import { readFile, mkdtemp, writeFile } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, extname, normalize } from 'node:path';
@@ -68,10 +68,17 @@ export async function openApp(browser, url, { width = 1280, height = 800 } = {})
       const handle = {
         name: suggestedName,
         async createWritable() {
-          let text = '';
+          const chunks = [];
           return {
-            async write(t) { text += t; },
-            async close() { window.__saved.push({ name: handle.name, text }); },
+            async write(t) { chunks.push(t); },
+            async close() {
+              if (chunks.every((c) => typeof c === 'string')) {
+                window.__saved.push({ name: handle.name, text: chunks.join('') });
+              } else {
+                const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
+                window.__saved.push({ name: handle.name, bytes: Array.from(bytes) });
+              }
+            },
           };
         },
       };
@@ -127,8 +134,26 @@ export async function makeFiles() {
   const shifted = sphere.clone();
   shifted.translate(0.5, 0, 0);
 
+  // Four different small meshes for specimen sets.
+  const balls = [];
+  for (let i = 1; i <= 4; i++) {
+    const g = new THREE.SphereGeometry(10 + i, 40, 30).toNonIndexed();
+    g.translate(i * 100, 0, 0);
+    const p = join(dir, `SET_00${i}.stl`);
+    await writeFile(p, Buffer.from(binaryStl(g)));
+    balls.push(p);
+  }
+  // Same file name as the first sphere, different contents.
+  await mkdir(join(dir, 'v2'));
+  const renamed = join(dir, 'v2', 'BALL_001.stl');
+  const moved = new THREE.SphereGeometry(20, 64, 48).toNonIndexed();
+  moved.translate(40.3, -10, 100);
+  await writeFile(renamed, Buffer.from(binaryStl(moved)));
+
   const files = {
     dir,
+    balls,
+    renamed,
     sphere: join(dir, 'BALL_001.stl'),
     sphereShifted: join(dir, 'BALL_001_v2.stl'),
     quad: join(dir, 'quad.ply'),
@@ -165,4 +190,25 @@ export async function messageText(page) {
   const el = page.locator('#message');
   await el.waitFor({ state: 'visible', timeout: 10000 });
   return el.locator('p').innerText();
+}
+
+// The strip's specimen buttons: [{ id, count, current, hasPicture }].
+export async function stripItems(page) {
+  return page.$$eval('#strip .thumb[data-uid]', (els) =>
+    els.map((b) => ({
+      id: b.querySelector('.cap').firstChild.textContent.trim(),
+      count: b.querySelector('.count').textContent,
+      done: b.querySelector('.count').classList.contains('done'),
+      current: b.getAttribute('aria-current') === 'true',
+      hasPicture: !!b.querySelector('img.pic'),
+      waiting: b.querySelector('span.pic')?.textContent || '',
+    }))
+  );
+}
+
+// Open several meshes at once and wait until they are all in.
+export async function openMeshes(page, paths) {
+  await page.setInputFiles('#file-input', paths);
+  await page.waitForFunction(() => !window.__lmk.specimens.batch, null, { timeout: 60000 });
+  await ready(page);
 }

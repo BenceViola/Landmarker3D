@@ -2,7 +2,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { Session, ADHOC } from '../../js/session.js';
 import { buildLandmarkFile, parseLandmarkFile } from '../../js/landmark-file.js';
-import { tpsBlock, combineTps, adhocIdsOf } from '../../js/tps.js';
+import { tpsBlock, toTps, adhocIdsOf } from '../../js/tps.js';
+import { stateOf } from '../../js/handin.js';
 import { hit, MESH, SMALL_TEMPLATE } from '../fixtures.js';
 
 // Reads TPS the way geomorph's readland.tps does: "LM3=n" opens a block of n
@@ -105,48 +106,36 @@ describe('single specimen', () => {
   });
 });
 
-describe('combining files', () => {
-  test('one block per specimen, sorted by specimen id', () => {
-    const files = ['SK_10', 'SK_2', 'SK_1'].map((id) => specimen(id).parsed);
-    const out = combineTps(files);
-    const sp = readTps(out.text);
-    assert.deepEqual(sp.map((s) => s.id), ['SK_1', 'SK_2', 'SK_10']);
-    assert.ok(sp.every((s) => s.n === 3));
-    assert.equal(out.count, 3);
+describe('several specimens in one TPS', () => {
+  const st = (id, opts) => stateOf(specimen(id, opts).parsed);
+
+  test('one block per specimen, in the order given, with the given IDs', () => {
+    const out = toTps([st('SK_2'), st('SK_1')], { ids: ['SK_2', 'SK_1_r2'] });
+    assert.deepEqual(readTps(out.text).map((s) => s.id), ['SK_2', 'SK_1_r2']);
+    assert.ok(readTps(out.text).every((s) => s.n === 3));
     assert.deepEqual(out.notes, []);
   });
 
-  test('different templates are refused', () => {
-    const a = specimen('A').parsed;
-    const b = specimen('B').parsed;
-    b.template.id = 'other';
-    assert.throws(() => combineTps([a, b]), /different template/);
+  test('IDs default to the specimen IDs', () => {
+    assert.deepEqual(readTps(toTps([st('A'), st('B')]).text).map((s) => s.id), ['A', 'B']);
   });
 
-  test('same template id but different order is refused', () => {
-    const a = specimen('A').parsed;
-    const b = specimen('B').parsed;
-    b.template.export_order = ['LM02', 'LM01', 'LM03'];
-    assert.throws(() => combineTps([a, b]), /different template/);
-  });
-
-  test('ad hoc points are kept only if every file has the same ones', () => {
-    const same = combineTps([specimen('A', { adhoc: 1 }).parsed, specimen('B', { adhoc: 1 }).parsed]);
+  test('ad hoc points only if every specimen has the same ones', () => {
+    const same = toTps([st('A', { adhoc: 1 }), st('B', { adhoc: 1 })]);
     assert.ok(readTps(same.text).every((s) => s.n === 4));
-    const differ = combineTps([specimen('A', { adhoc: 1 }).parsed, specimen('B').parsed]);
+    const differ = toTps([st('A', { adhoc: 1 }), st('B')]);
     assert.ok(readTps(differ.text).every((s) => s.n === 3));
     assert.match(differ.notes.join(' '), /Ad hoc points were left out/);
-    const off = combineTps([specimen('A', { adhoc: 1 }).parsed], { includeAdhoc: false });
-    assert.equal(readTps(off.text)[0].n, 3);
+    assert.equal(readTps(toTps([st('A', { adhoc: 1 })], { includeAdhoc: false }).text)[0].n, 3);
   });
 
-  test('notes about never-placed landmarks and repeated specimen ids', () => {
-    const out = combineTps([specimen('A', { skip: ['LM01'] }).parsed, specimen('A').parsed]);
-    assert.match(out.notes.join(' '), /1 landmark was never placed/);
-    assert.match(out.notes.join(' '), /used more than once: A/);
+  test('never-placed landmarks are counted and noted', () => {
+    const out = toTps([st('A', { skip: ['LM01'] }), st('B', { skip: ['LM02', 'LM03'] })]);
+    assert.equal(out.notPlaced, 3);
+    assert.match(out.notes.join(' '), /3 landmarks were never placed/);
   });
 
-  test('nothing chosen is an error', () => {
-    assert.throws(() => combineTps([]), /No landmark files/);
+  test('an empty set gives an empty file', () => {
+    assert.deepEqual(toTps([]), { text: '', notes: [], notPlaced: 0 });
   });
 });

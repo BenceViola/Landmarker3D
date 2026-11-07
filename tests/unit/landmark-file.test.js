@@ -9,6 +9,7 @@ import {
   orderedPoints,
   LandmarkFileError,
   APP,
+  newerVersion,
 } from '../../js/landmark-file.js';
 import { hit, MESH, SMALL_TEMPLATE } from '../fixtures.js';
 
@@ -298,5 +299,55 @@ describe('mesh matching and order', () => {
   test('orderedPoints sorts ad hoc points numerically', () => {
     const pts = ['AH10', 'AH2', 'AH1'].map((id) => ({ id, template_id: null }));
     assert.deepEqual(orderedPoints({ landmarks: [] }, pts).map((p) => p.id), ['AH1', 'AH2', 'AH10']);
+  });
+});
+
+describe('format versions and replicates (v0.3)', () => {
+  test('a replicate after the first is written as 0.3.0 with specimen.replicate', () => {
+    const { doc } = build(sessionWithData(), { replicate: 2 });
+    assert.equal(doc.version, '0.3.0');
+    assert.equal(doc.specimen.replicate, 2);
+    assert.deepEqual(Object.keys(doc.specimen).slice(0, 2), ['id', 'replicate']);
+  });
+
+  test('a first replicate is written as 0.2.0 without the field', () => {
+    const { doc } = build(sessionWithData(), { replicate: 1, base: { version: '0.2.0', specimen: { replicate: 1 } } });
+    assert.equal(doc.version, '0.2.0');
+    assert.equal('replicate' in doc.specimen, false);
+  });
+
+  test('re-saving a newer file keeps its version', () => {
+    assert.equal(build(sessionWithData(), { base: { version: '0.3.0' } }).doc.version, '0.3.0');
+    assert.equal(build(sessionWithData(), { base: { version: '0.9.1' } }).doc.version, '0.9.1');
+    assert.equal(build(sessionWithData(), { base: { version: '0.1.0' } }).doc.version, '0.2.0');
+    assert.equal(build(sessionWithData(), { base: { version: 'odd' } }).doc.version, '0.2.0');
+  });
+
+  test('newerVersion compares numerically', () => {
+    assert.equal(newerVersion('0.10.0', '0.9.0'), '0.10.0');
+    assert.equal(newerVersion(undefined, '0.2.0'), '0.2.0');
+  });
+
+  test('0.3 files open without a warning; their replicate is kept', () => {
+    const { text } = build(sessionWithData(), { replicate: 3 });
+    const r = parseLandmarkFile(text, 'A_r3.lmk.json');
+    assert.deepEqual(r.warnings, []);
+    assert.equal(r.doc.specimen.replicate, 3);
+  });
+
+  test('a bad replicate number is dropped with a warning', () => {
+    const doc = structuredClone(SPEC_EXAMPLE);
+    doc.specimen.replicate = 'two';
+    const r = parseLandmarkFile(JSON.stringify(doc), 'f.lmk.json');
+    assert.match(r.warnings.join(' '), /treated as replicate 1/);
+    assert.equal('replicate' in r.doc.specimen, false);
+  });
+
+  test('template and points can be passed without a session', () => {
+    const s = sessionWithData();
+    const a = build(s).doc;
+    const b = buildLandmarkFile({ template: s.template, points: s.points, mesh: { file: MESH.name, sha256: MESH.sha256, units: 'cm', vertex_count: 1, face_count: 2 }, specimenId: 'SKULL_014' }).doc;
+    assert.deepEqual(b.landmarks, a.landmarks);
+    assert.deepEqual(b.specimen.mesh, { file: MESH.name, sha256: MESH.sha256, units: 'cm', vertex_count: 1, face_count: 2 });
   });
 });
