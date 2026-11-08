@@ -559,3 +559,55 @@ describe('specimen sets', () => {
     assert.equal(replicateOf(newRecord({ specimen: { id: 'A', replicate: 2 } })), 2);
   });
 });
+
+describe('planes in the template (v0.4)', () => {
+  test('add a plane from three or more landmarks', () => {
+    const s = fresh();
+    assert.deepEqual(s.addPlane({ name: ' Midsagittal ', landmarks: ['LM01', 'LM02', 'LM03'] }), { id: 'PL01' });
+    assert.deepEqual(s.template.planes, [{ id: 'PL01', name: 'Midsagittal', landmarks: ['LM01', 'LM02', 'LM03'] }]);
+    assert.equal(s.addPlane({ name: 'Second', landmarks: ['LM03', 'LM02', 'LM01'], description: 'x' }).id, 'PL02');
+    s.undo();
+    assert.equal(s.template.planes.length, 1, 'adding is one undo step');
+  });
+
+  test('plane definitions are checked', () => {
+    const s = fresh();
+    assert.match(s.addPlane({ name: '', landmarks: ['LM01', 'LM02', 'LM03'] }).error, /needs a name/);
+    assert.match(s.addPlane({ name: 'P', landmarks: ['LM01', 'LM02'] }).error, /at least three/);
+    assert.match(s.addPlane({ name: 'P', landmarks: ['LM01', 'LM01', 'LM02'] }).error, /only once/);
+    assert.match(s.addPlane({ name: 'P', landmarks: ['LM01', 'LM02', 'LM99'] }).error, /LM99 is not a landmark/);
+    assert.equal(s.template.planes, undefined);
+    assert.equal(s.canUndo, false);
+  });
+
+  test('edit and remove a plane', () => {
+    const s = fresh();
+    s.addDefs(['Extra']);
+    s.addPlane({ name: 'P', landmarks: ['LM01', 'LM02', 'LM03'] });
+    assert.equal(s.updatePlane('PL01', { name: 'Midline', landmarks: ['LM01', 'LM02', 'LM03', 'LM04'] }), null);
+    assert.deepEqual(s.plane('PL01').landmarks, ['LM01', 'LM02', 'LM03', 'LM04']);
+    assert.match(s.updatePlane('PL01', { landmarks: ['LM01'] }), /at least three/);
+    s.removePlane('PL01');
+    assert.equal('planes' in s.template, false, 'an empty list is dropped');
+  });
+
+  test('renaming a landmark updates planes; deleting one removes it from planes', () => {
+    const s = fresh();
+    s.addPlane({ name: 'P', landmarks: ['LM01', 'LM02', 'LM03'] });
+    s.updateDef('LM02', { id: 'ZYL' });
+    assert.deepEqual(s.plane('PL01').landmarks, ['LM01', 'ZYL', 'LM03']);
+    s.removeDef('LM03');
+    assert.deepEqual(s.plane('PL01').landmarks, ['LM01', 'ZYL']);
+  });
+
+  test('plane ids and landmark ids never clash', () => {
+    const s = fresh();
+    s.addPlane({ name: 'P', landmarks: ['LM01', 'LM02', 'LM03'] });
+    assert.match(s.updateDef('LM01', { id: 'PL01' }), /already used/);
+  });
+
+  test('templates with a non-list planes field are refused', () => {
+    assert.match(checkTemplate({ ...SMALL_TEMPLATE, planes: {} }), /isn’t a list/);
+    assert.equal(checkTemplate({ ...SMALL_TEMPLATE, planes: [] }), null);
+  });
+});

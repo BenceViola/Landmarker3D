@@ -26,6 +26,7 @@ export function setupSpecimens(app) {
   let batch = false; // opening files: the viewer is busy with thumbnails
 
   const shaOf = (rec) => rec?.specimen.mesh?.sha256 || null;
+  const hiddenInThumbnails = () => [markers.group, app.planeView?.group, app.planeView?.pickGroup].filter(Boolean);
   const sampleOnly = () => session.records.every((r) => r.isSample || (!r.specimen.mesh && !r.points.length));
 
   // Is this specimen's mesh in memory, or can it be read again?
@@ -185,7 +186,7 @@ export function setupSpecimens(app) {
 
       // A picture for the strip, taken from the default view.
       display(entry);
-      const thumb = viewer.capture(128, 96, [markers.group]);
+      const thumb = viewer.capture(128, 96, hiddenInThumbnails());
       for (const t of targets) t.thumb = thumb;
 
       if (snapped) {
@@ -246,7 +247,7 @@ export function setupSpecimens(app) {
       session.replaceRecords([rec]);
       shown = null;
       display(store.get(mesh.sha256));
-      rec.thumb = viewer.capture(128, 96, [markers.group]);
+      rec.thumb = viewer.capture(128, 96, hiddenInThumbnails());
       batch = false;
       await show(rec);
     } catch (err) {

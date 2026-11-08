@@ -6,7 +6,7 @@ Started 2026-11-08. This branch is for features that need experimenting before s
 
 - **Created from** `main` at `146b3a8` (specimen sets, replicates, Pages deployment).
 - **Tests** run on GitHub for every push to this branch, as on `main`. Pages only publishes `main`.
-- **Trying it out:** a separate claude.ai artifact, "Landmarker (experimental)", published from this branch. Optionally later, the Pages workflow could also publish this branch at `…/Landmarker3D/next/`, so it can be tried with real meshes in any browser without touching the student link.
+- **Trying it out:** a separate claude.ai artifact, "Landmarker (experimental)", published from this branch, and the Pages workflow publishes this branch at `…/Landmarker3D/next/` (decided 2026-11-08), so it can be tried with real meshes in any browser without touching the student link.
 - **Keeping up:** merge `main` into `advanced` after every change on `main`, so the two don't drift apart.
 - **Merging back:** a feature goes to `main` once it is tested, the master spec covers anything it saves, and the 2D app has an answer for it where both apps should behave the same.
 - **Format changes:** the master spec (the project's Claude Doc) is changed first, then copied to `docs/landmark-json-spec.md` in both repositories.
@@ -34,7 +34,7 @@ Started 2026-11-08. This branch is for features that need experimenting before s
 Planes are not in the spec yet. The proposal for the master spec (v0.4, an optional addition, so a minor version):
 
 - `template.planes`: `[{ "id": "PL01", "name": "Midsagittal", "landmarks": ["LM01", "LM03", "LM06"], "description": "…" }]`
-- Planes from clicked points, if they should be saved, as a specimen-level `planes` list with `control_points` (like curves). Alternatively they stay a checking tool that is never saved.
+- Planes from clicked points: for now a checking tool that is never saved (decided 2026-11-08). If they should be saved later, as a specimen-level `planes` list with `control_points` (like curves).
 
 ### Tests
 
@@ -100,3 +100,7 @@ It would be exported next to the TPS (and put in the hand-in zip). The 2D app do
 - A gallery comparing one landmark across specimens (3D version, designed around the three-mesh limit).
 - Templates as separate `.template.json` files.
 - A JSON Schema for the format.
+
+## Status
+
+- 2026-11-08: planes done on this branch (spec v0.4 `template.planes`, Planes tab, planes from 3 clicks, cut line, cut-away, distance tables for midline landmarks and left/right pairs). Next: test with real meshes, then curves. Idea from testing planes: a curve could start from where a plane cuts the mesh.

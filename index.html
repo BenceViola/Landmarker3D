@@ -133,7 +133,7 @@
   }
   .brand .ver { font-family: var(--font-data); font-size: 11px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
 
-  .tablist { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
+  .tablist { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); }
   .tab {
     flex: 1;
     padding: 9px 4px 8px;
@@ -386,6 +386,31 @@
   }
   .keys dt { font-family: var(--font-data); font-size: 11.5px; color: var(--fg); }
   .keys dd { margin: 0; }
+
+  /* ---- Planes tab ---- */
+  .exp-badge { font: 600 10px var(--font-body); text-transform: uppercase; letter-spacing: .06em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; align-self: center; }
+  .planes-panel { display: flex; flex-direction: column; gap: 18px; }
+  .planes-panel section { display: flex; flex-direction: column; gap: 10px; }
+  .plane-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .plane-row { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  .plane-row.is-selected { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .plane-main { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: flex-start; background: none; border: 0; padding: 4px 2px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .plane-main .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; margin-top: 3px; }
+  .plane-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .plane-name { font-weight: 600; font-size: 13px; }
+  .plane-sub { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+  .plane-sub.bad { color: var(--danger); }
+  .plane-show { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+  .pick-box { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 6px; background: var(--note-bg); font-size: 13px; }
+  .plane-editor { border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .lm-pick { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-weight: 400; }
+  .lm-pick-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .lm-order { margin: 0; padding-left: 22px; font-weight: 400; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
+  .lm-order li { display: flex; align-items: center; gap: 6px; }
+  .lm-order .icon-btn:first-of-type { margin-left: auto; }
+  .chip { font-size: 10.5px; border-radius: 4px; padding: 0 5px; background: var(--note-bg); color: var(--fg); border: 1px solid var(--line); }
+  .chip.def { background: none; color: var(--muted); }
+  .planes-panel .nowrap { white-space: nowrap; }
 
   /* ---- Template tab ---- */
   .tpl-meta { display: flex; flex-direction: column; gap: 10px; }
@@ -756,7 +781,7 @@
   <aside class="panel">
     <div class="panel-head">
       <header class="brand">
-        <h1>Landmarker <span class="ver">v0.2</span></h1>
+        <h1>Landmarker <span class="ver">v0.3-dev</span> <span class="exp-badge" title="Experimental version: new features being tried out. Use the main site for coursework.">experimental</span></h1>
         <div class="head-actions">
           <input type="file" id="file-input" class="file-input" accept=".stl,.ply" multiple>
           <label for="file-input" class="btn primary" title="Open one or more meshes; each becomes a specimen">Open meshes…</label>
@@ -766,6 +791,7 @@
       <div class="tablist" role="tablist" aria-label="Panel">
         <button type="button" class="tab" role="tab" id="t-landmarks" aria-controls="tab-landmarks" aria-selected="true">Landmarks</button>
         <button type="button" class="tab" role="tab" id="t-template" aria-controls="tab-template" aria-selected="false" tabindex="-1">Template</button>
+        <button type="button" class="tab" role="tab" id="t-planes" aria-controls="tab-planes" aria-selected="false" tabindex="-1">Planes</button>
         <button type="button" class="tab" role="tab" id="t-specimen" aria-controls="tab-specimen" aria-selected="false" tabindex="-1">Specimen</button>
         <button type="button" class="tab" role="tab" id="t-file" aria-controls="tab-file" aria-selected="false" tabindex="-1">File</button>
       </div>
@@ -815,6 +841,11 @@
     <!-- Template -->
     <div class="tabpanel" role="tabpanel" id="tab-template" aria-labelledby="t-template" hidden>
       <div id="template-editor"></div>
+    </div>
+
+    <!-- Planes -->
+    <div class="tabpanel" role="tabpanel" id="tab-planes" aria-labelledby="t-planes" hidden>
+      <div id="planes-panel" class="planes-panel"></div>
     </div>
 
     <!-- Specimen -->

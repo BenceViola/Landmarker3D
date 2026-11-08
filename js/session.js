@@ -11,7 +11,14 @@ export const ADHOC = '+adhoc'; // active "landmark" meaning: the next click adds
 // templates declare dimensions 3 and 2D templates are refused. v0.3 added the
 // optional specimen.replicate: files are written as 0.2.0, or 0.3.0 for a
 // replicate after the first, and files up to 0.3 are read.
-export const FORMAT = { name: 'landmark-json', version: '0.2.0', replicateVersion: '0.3.0', readVersion: '0.3.0' };
+// v0.4 added optional template.planes: a template with planes is written as 0.4.0.
+export const FORMAT = {
+  name: 'landmark-json',
+  version: '0.2.0',
+  replicateVersion: '0.3.0',
+  planesVersion: '0.4.0',
+  readVersion: '0.4.0',
+};
 export const DIMENSIONS = 3;
 
 let uidCounter = 0;
@@ -58,6 +65,7 @@ export function checkTemplate(template) {
   }
   if (dims !== 3) return `The template’s "dimensions" is ${JSON.stringify(dims)}; it must be 2 or 3.`;
   if (!Array.isArray(template.landmarks)) return 'The template has no "landmarks" list.';
+  if (template.planes !== undefined && !Array.isArray(template.planes)) return 'The template’s "planes" isn’t a list.';
   return null;
 }
 
@@ -486,7 +494,7 @@ export class Session extends EventTarget {
       if (newId !== id) {
         if (!newId) return 'Every landmark needs an ID.';
         if (!ID_RE.test(newId)) return 'IDs can only use letters, digits, “-”, “_” and “.”.';
-        if (this.def(newId) || this.hasData(newId)) return `${newId} is already used.`;
+        if (this.def(newId) || this.plane(newId) || this.hasData(newId)) return `${newId} is already used.`;
         if (this.hasData(id)) return 'This landmark already has data, so its ID can’t change.';
       }
     }
@@ -502,6 +510,7 @@ export class Session extends EventTarget {
     if (newId !== id) {
       def.id = newId;
       for (const d of this.template.landmarks) if (d.bilateral_pair === id) d.bilateral_pair = newId;
+      for (const pl of this.template.planes || []) pl.landmarks = pl.landmarks.map((x) => (x === id ? newId : x));
       if (this.activeId === id) this.activeId = newId;
     }
     this._emit('template');
@@ -519,6 +528,8 @@ export class Session extends EventTarget {
       r.points = kept;
     }
     for (const d of this.template.landmarks) if (d.bilateral_pair === id) delete d.bilateral_pair;
+    // A plane loses the landmark; with fewer than three it waits until more are chosen.
+    for (const pl of this.template.planes || []) pl.landmarks = pl.landmarks.filter((x) => x !== id);
     if (this.activeId === id) this.activeId = this.nextTodo(null);
     this._emit('template');
   }
@@ -565,6 +576,80 @@ export class Session extends EventTarget {
     this._emit('template');
   }
 
+  // ---- Planes (spec v0.4) ---------------------------------------------------
+  // A plane is defined in the template by at least three landmarks; where it
+  // lies is computed from their positions on each specimen (planes.js).
+
+  plane(id) {
+    return (this.template.planes || []).find((p) => p.id === id) || null;
+  }
+
+  // Returns { id } when added, or { error }.
+  addPlane({ name, landmarks, description = '' }) {
+    const error = this._checkPlane(name, landmarks);
+    if (error) return { error };
+    this._commit();
+    const id = this._nextPlaneId();
+    const pl = { id, name: name.trim(), landmarks: [...landmarks] };
+    if (description.trim()) pl.description = description.trim();
+    (this.template.planes ||= []).push(pl);
+    this._emit('template');
+    return { id };
+  }
+
+  // Returns an error message, or null when the change was applied.
+  updatePlane(id, patch) {
+    const pl = this.plane(id);
+    if (!pl) return null;
+    const name = 'name' in patch ? patch.name : pl.name;
+    const landmarks = 'landmarks' in patch ? patch.landmarks : pl.landmarks;
+    const description = ('description' in patch ? patch.description : pl.description || '').trim();
+    const error = this._checkPlane(name, landmarks);
+    if (error) return error;
+    const same = name.trim() === pl.name && description === (pl.description || '') && landmarks.join() === pl.landmarks.join();
+    if (same) return null;
+    this._commit();
+    pl.name = name.trim();
+    pl.landmarks = [...landmarks];
+    if (description) pl.description = description;
+    else delete pl.description;
+    this._emit('template');
+    return null;
+  }
+
+  removePlane(id) {
+    const list = this.template.planes || [];
+    const i = list.findIndex((p) => p.id === id);
+    if (i < 0) return;
+    this._commit();
+    list.splice(i, 1);
+    if (!list.length) delete this.template.planes;
+    this._emit('template');
+  }
+
+  _checkPlane(name, landmarks) {
+    if (!name || !name.trim()) return 'Every plane needs a name.';
+    if (!Array.isArray(landmarks) || new Set(landmarks).size !== landmarks.length) return 'Choose each landmark only once.';
+    if (landmarks.length < 3) return 'A plane needs at least three landmarks.';
+    const unknown = landmarks.find((id) => !this.def(id));
+    if (unknown) return `${unknown} is not a landmark in this template.`;
+    return null;
+  }
+
+  _nextPlaneId() {
+    let n = 0;
+    for (const p of this.template.planes || []) {
+      const m = /^PL(\d+)$/.exec(p.id);
+      if (m) n = Math.max(n, Number(m[1]));
+    }
+    let id;
+    do {
+      n++;
+      id = `PL${String(n).padStart(2, '0')}`;
+    } while (this.def(id) || this.plane(id) || this.hasData(id));
+    return id;
+  }
+
   _nextDefId() {
     let n = 0;
     for (const d of this.template.landmarks) {
@@ -575,7 +660,7 @@ export class Session extends EventTarget {
     do {
       n++;
       id = `LM${String(n).padStart(2, '0')}`;
-    } while (this.def(id) || this.hasData(id));
+    } while (this.def(id) || this.plane(id) || this.hasData(id));
     return id;
   }
 }

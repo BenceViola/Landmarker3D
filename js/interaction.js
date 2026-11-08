@@ -11,7 +11,9 @@
 const CLICK_SLOP = 5; // px
 const CLICK_TIME = 600; // ms
 
-export function attachInteraction({ viewer, picker, markers, session }) {
+// `intercept(hit)` may take a click on the 3D view for another tool (e.g.
+// clicking the points of a plane); return true to stop it placing a landmark.
+export function attachInteraction({ viewer, picker, markers, session, intercept = null }) {
   const canvas = viewer.renderer.domElement;
   const stage = viewer.container;
   let press = null;
@@ -83,8 +85,9 @@ export function attachInteraction({ viewer, picker, markers, session }) {
       return;
     }
     if (cancelled || p.moved || performance.now() - p.time > CLICK_TIME) return;
-    if (!session.activeId) return;
     const hit = picker.pickAt(e.clientX, e.clientY);
+    if (intercept?.(hit)) return;
+    if (!session.activeId) return;
     if (hit) session.place(session.activeId, hit);
   }
 

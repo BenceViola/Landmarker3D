@@ -43,6 +43,7 @@ Template fields:
 - `id`, `name`, `version`, `dimensions` (`3` for meshes, `2` for images; defaults to 3 if absent), optional `description` and `author`.
 - `landmarks`: array of definitions, each with `id` (a short code such as `"LM01"`, never changed once data exists), `name` (the descriptor shown to students, e.g. `"Nasion"`, can be renamed freely), optional `description` (where exactly to place it), optional `image` (path or URL to a reference picture), and optional `bilateral_pair` (the `id` of its left/right counterpart).
 - `curves` (v0.2): array of curve definitions, see Curves.
+- `planes` (v0.4): optional array of reference planes defined by landmarks, see Planes.
 - `export_order`: array of ids giving the row order in TPS and CSV. If absent, the order of `landmarks` is used, followed by curve points in curve order.
 
 A specimen may contain a landmark that is not in the template (`"template_id": null`). This allows ad hoc landmarking without writing a template first; such points are exported after the template points.
@@ -170,6 +171,34 @@ Export:
 - TPS: when a combined export holds more than one replicate of any specimen, every `ID=` line gets the suffix `_r<n>` (`SKULL_014_r1`, `SKULL_014_r2`), so IDs stay unique and the replicate can be read back. Otherwise `ID=` is the specimen ID alone.
 - CSV: separate `specimen_id` and `replicate` columns, ready to use as factors for a measurement-error analysis (e.g. Procrustes ANOVA in geomorph).
 
+## Planes (v0.4)
+
+A plane is a reference for display and checking, such as the midsagittal plane: midline landmarks should lie on it, and left/right pairs should lie at mirror distances from it. Planes are defined in the template from landmarks, so a plane is the same on every specimen and moves when its landmarks move. For now planes are used in 3D only; a 2D app keeps the field when saving but need not use it.
+
+- `template.planes`: optional array, each `{ "id": "PL01", "name": "Midsagittal", "landmarks": ["LM01", "LM03", "LM06"], "description": "..." }`. `description` is optional.
+- `id`: a short stable code, unique among all ids in the template (landmarks, curves and planes).
+- `landmarks`: ids of at least three template landmarks. With three, the plane passes through them. With more, it is the least-squares best-fit plane: the plane with the smallest sum of squared perpendicular distances to the points, whose normal is the eigenvector of the points' covariance matrix with the smallest eigenvalue.
+- The plane is computed from the current positions of its landmarks whenever it is needed. Its position and orientation are never stored, because coordinates are the truth.
+- Orientation: the normal points to the side given by the first three landmarks in list order (right-hand rule on `(B − A) × (C − A)`), so signed distances to the plane keep their sign from specimen to specimen.
+- On a specimen where fewer than three of a plane's landmarks have positions (missing or not yet placed), or where they lie (nearly) on one line, the plane is undefined there. Apps say so rather than guess.
+- Planes add no rows to TPS or CSV exports. Distances of landmarks to a plane are derived values that apps may show; they are not stored.
+- Planes from points clicked on the surface, rather than from landmarks, are not part of the format. Apps may offer them for exploring, but don't save them.
+
+A file whose template has planes is written as format version `0.4.0`. Older apps open it with a note about the newer version and keep `planes` when saving, as for any unknown field.
+
+```json
+"template": {
+  "id": "cranium-basic",
+  "version": "1.1",
+  "dimensions": 3,
+  "landmarks": [ ... ],
+  "planes": [
+    { "id": "PL01", "name": "Midsagittal", "landmarks": ["LM01", "LM02", "LM06", "LM07"],
+      "description": "Best fit through the midline landmarks." }
+  ]
+}
+```
+
 ## Conventions
 
 **Status values.** Every landmark, curve and surface carries one:
@@ -287,3 +316,4 @@ three.js app (decided 2026-11-06):
 - [x] Handoff: when moving to the repository, add a `README.md`, a `CLAUDE.md` with the agreed decisions, and this spec as Markdown under `docs/`.
 - [x] Meshes: v0.1 accepts triangle meshes only; PLY files with non-triangle faces are refused.
 - [x] Scope: the app stays 3D-only under v0.2 of the format; 2D templates and image sources are refused rather than supported.
+- [x] Planes (v0.4, decided 2026-11-08): optional template definitions built from landmarks (exact for three, best fit for more). Planes from clicked points are for exploring only and are not saved.

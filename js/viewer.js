@@ -52,7 +52,12 @@ export class Viewer {
       roughness: 0.82,
       metalness: 0,
       side: THREE.DoubleSide,
+      // Pushed back a hair in depth, so lines drawn on the surface (plane cuts) aren't hidden in it.
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     });
+    this.renderer.localClippingEnabled = true;
     this.wireMaterial = new THREE.MeshBasicMaterial({
       color: 0x1d2433,
       wireframe: true,
@@ -127,6 +132,16 @@ export class Viewer {
     this.displayCache = {};
   }
 
+  // Hide the part of the mesh on one side of a plane (cut-away view), or
+  // show all of it again with null. `keep` is a THREE.Plane: what has a
+  // negative distance to it is hidden.
+  setClip(keep) {
+    const planes = keep ? [keep] : [];
+    this.material.clippingPlanes = planes;
+    this.wireMaterial.clippingPlanes = planes;
+    this.material.needsUpdate = this.wireMaterial.needsUpdate = true;
+  }
+
   // The camera position, to come back to when switching back to a specimen.
   getView() {
     if (!this.box) return null;
@@ -158,7 +173,10 @@ export class Viewer {
     this.viewFrom('home');
     const was = hide.map((o) => o.visible);
     hide.forEach((o) => (o.visible = false));
+    const clip = this.material.clippingPlanes;
+    this.material.clippingPlanes = [];
     this.renderer.render(this.scene, this.camera);
+    this.material.clippingPlanes = clip;
     const src = this.renderer.domElement;
     const canvas = document.createElement('canvas');
     canvas.width = width;

@@ -351,3 +351,46 @@ describe('format versions and replicates (v0.3)', () => {
     assert.deepEqual(b.specimen.mesh, { file: MESH.name, sha256: MESH.sha256, units: 'cm', vertex_count: 1, face_count: 2 });
   });
 });
+
+describe('planes in files (v0.4)', () => {
+  const withPlane = () => {
+    const s = sessionWithData();
+    s.addPlane({ name: 'Midsagittal', landmarks: ['LM01', 'LM02', 'LM03'] });
+    return s;
+  };
+
+  test('a template with planes is written as 0.4.0 and the planes are kept', () => {
+    const { doc, text } = build(withPlane());
+    assert.equal(doc.version, '0.4.0');
+    assert.deepEqual(doc.template.planes, [{ id: 'PL01', name: 'Midsagittal', landmarks: ['LM01', 'LM02', 'LM03'] }]);
+    const r = parseLandmarkFile(text, 'a.lmk.json');
+    assert.deepEqual(r.warnings, [], 'this app reads 0.4 without a note');
+    assert.deepEqual(r.template.planes, doc.template.planes);
+  });
+
+  test('replicates with planes are still 0.4.0', () => {
+    assert.equal(build(withPlane(), { replicate: 2 }).doc.version, '0.4.0');
+  });
+
+  test('no planes: no version bump', () => {
+    assert.equal(build(sessionWithData()).doc.version, '0.2.0');
+  });
+
+  test('unusable plane definitions are cleaned up with a note', () => {
+    const doc = structuredClone(SPEC_EXAMPLE);
+    doc.version = '0.4.0';
+    doc.template.planes = [
+      { id: 'PL01', name: 'Ok', landmarks: ['LM01', 'LM02', 'LM03'] },
+      { id: 'PL02', landmarks: ['LM01', 'LM99', 'LM02'] },
+      { name: 'no id', landmarks: [] },
+      'nonsense',
+    ];
+    const r = parseLandmarkFile(JSON.stringify(doc), 'f.lmk.json');
+    assert.deepEqual(r.template.planes.map((p) => [p.id, p.name, p.landmarks]), [
+      ['PL01', 'Ok', ['LM01', 'LM02', 'LM03']],
+      ['PL02', 'PL02', ['LM01', 'LM02']],
+    ]);
+    assert.match(r.warnings.join(' '), /2 planes were unreadable/);
+    assert.match(r.warnings.join(' '), /named landmarks not in the template/);
+  });
+});

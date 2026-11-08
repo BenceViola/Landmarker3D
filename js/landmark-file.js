@@ -105,7 +105,10 @@ export function buildLandmarkFile({
   // Spec order first, then any other top-level keys from the opened file.
   // A file re-saved from a newer minor version keeps that version, since its
   // extra fields are kept too.
-  const version = newerVersion(b.version, replicate > 1 ? FORMAT.replicateVersion : FORMAT.version);
+  let needed = FORMAT.version;
+  if (replicate > 1) needed = newerVersion(needed, FORMAT.replicateVersion);
+  if (template.planes?.length) needed = newerVersion(needed, FORMAT.planesVersion);
+  const version = newerVersion(b.version, needed);
   const doc = {
     format: FORMAT.name,
     version,
@@ -184,6 +187,8 @@ export function parseLandmarkFile(text, name) {
   }
   const templateError = checkTemplate(t);
   if (templateError) throw new LandmarkFileError(templateError);
+  const planeNote = cleanPlanes(t);
+  if (planeNote) warnings.push(planeNote);
   const defIds = new Set();
   for (const d of t.landmarks) {
     if (!d || typeof d.id !== 'string' || !d.id || defIds.has(d.id)) {
@@ -226,6 +231,33 @@ export function parseLandmarkFile(text, name) {
   if (unlinked) warnings.push(`${unlinked} point${unlinked === 1 ? '' : 's'} referred to landmarks not in the template and became ad hoc points.`);
 
   return { doc, template: clone(t), points, warnings, name };
+}
+
+// Drop plane definitions that can't be used; keep the rest. Returns a note, or null.
+function cleanPlanes(t) {
+  if (!t.planes) return null;
+  const ids = new Set(t.landmarks.map((d) => d && d.id));
+  let dropped = 0;
+  let trimmed = 0;
+  const seen = new Set();
+  t.planes = t.planes.filter((p) => {
+    const ok = p && typeof p.id === 'string' && p.id && !seen.has(p.id) && Array.isArray(p.landmarks);
+    if (!ok) {
+      dropped++;
+      return false;
+    }
+    seen.add(p.id);
+    if (typeof p.name !== 'string' || !p.name) p.name = p.id;
+    const kept = [...new Set(p.landmarks.filter((id) => ids.has(id)))];
+    if (kept.length !== p.landmarks.length) trimmed++;
+    p.landmarks = kept;
+    return true;
+  });
+  if (!t.planes.length) delete t.planes;
+  const parts = [];
+  if (dropped) parts.push(`${dropped} plane${dropped === 1 ? ' was' : 's were'} unreadable and left out`);
+  if (trimmed) parts.push(`${trimmed} plane${trimmed === 1 ? '' : 's'} named landmarks not in the template, which were removed from ${trimmed === 1 ? 'it' : 'them'}`);
+  return parts.length ? parts.join('; ') + '.' : null;
 }
 
 // Do this file and this mesh belong together?

@@ -1,5 +1,5 @@
 // Wires the page together: viewer, picking, markers, the specimen set and
-// the four panel tabs (Landmarks, Template, Specimen, File).
+// the five panel tabs (Landmarks, Template, Planes, Specimen, File).
 
 import { Viewer } from './viewer.js';
 import { Picker } from './picking.js';
@@ -12,6 +12,8 @@ import { setupSpecimens } from './specimens.js';
 import { setupStrip } from './specimen-strip.js';
 import { setupSpecimenPanel } from './specimen-panel.js';
 import { setupFiles } from './files-panel.js';
+import { PlaneView } from './plane-view.js';
+import { setupPlanesPanel } from './planes-panel.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,6 +26,7 @@ const app = {
   openMeshPicker: () => $('file-input').click(),
   renderAll: () => renderAll(),
   renderStrip: () => strip?.render(),
+  renderStageHint: () => renderStageHint(),
 };
 
 // ---- 3D view -------------------------------------------------------------
@@ -33,7 +36,8 @@ try {
   app.viewer = new Viewer($('stage'));
   app.picker = new Picker(app.viewer);
   app.markers = new Markers(app.viewer, app.picker, session);
-  attachInteraction({ viewer: app.viewer, picker: app.picker, markers: app.markers, session });
+  app.planeView = new PlaneView(app.viewer);
+  attachInteraction({ viewer: app.viewer, picker: app.picker, markers: app.markers, session, intercept: (hit) => planes?.intercept(hit) });
 } catch (err) {
   console.error(err);
   webgl = false;
@@ -58,6 +62,8 @@ const templateEditor = new TemplateEditor($('template-editor'), session);
 const strip = specimens ? setupStrip($('strip'), { session, specimens, openMeshPicker: app.openMeshPicker }) : null;
 const specimenPanel = specimens ? setupSpecimenPanel(app) : null;
 const files = specimens ? setupFiles(app) : null;
+const planes = webgl ? setupPlanesPanel(app, $('planes-panel')) : null;
+app.planes = planes;
 
 session.addEventListener('change', (e) => {
   const kind = e.detail.kind;
@@ -68,6 +74,8 @@ session.addEventListener('change', (e) => {
   }
   markers?.sync();
   landmarkPanel.render(kind);
+  if (kind === 'move') planes?.update3D();
+  else planes?.render();
   if (kind !== 'move') {
     templateEditor.requestRender();
     strip?.render();
@@ -83,6 +91,7 @@ function renderAll() {
   templateEditor.render();
   strip?.render();
   specimenPanel?.render();
+  planes?.render();
   files?.renderStatus();
   renderStageHint();
   renderUndo();
@@ -103,7 +112,10 @@ function renderStageHint() {
     return;
   }
   el.hidden = false;
-  if (!app.state.mesh) {
+  const planeHint = planes?.stageHint();
+  if (planeHint && app.state.mesh) {
+    el.innerHTML = planeHint;
+  } else if (!app.state.mesh) {
     el.innerHTML = `<span class="verb">Open ${escapeHtml(rec.specimen.mesh.file)}</span> to see ${escapeHtml(rec.specimen.id)}`;
   } else if (id === ADHOC) {
     el.innerHTML = '<span class="verb">Click to add</span> an ad hoc point';

@@ -20,6 +20,7 @@ export class Picker {
     this.raycaster = new THREE.Raycaster();
     this.raycaster.firstHitOnly = true;
     this.mesh = null;
+    this.keep = null; // optional (point: Vector3) => bool; hits where it's false are ignored (cut-away view)
     this._ndc = new THREE.Vector2();
     this._a = new THREE.Vector3();
     this._b = new THREE.Vector3();
@@ -51,13 +52,22 @@ export class Picker {
     return this.raycaster.ray.clone();
   }
 
+  // The first hit along the raycaster's ray that isn't cut away.
+  _firstHit() {
+    if (!this.keep) return this.raycaster.intersectObject(this.mesh)[0];
+    this.raycaster.firstHitOnly = false;
+    const hits = this.raycaster.intersectObject(this.mesh);
+    this.raycaster.firstHitOnly = true;
+    return hits.find((h) => this.keep(h.point));
+  }
+
   // Surface point under the cursor, as the landmark fields the spec stores.
   pickAt(clientX, clientY) {
     if (!this.mesh) return null;
     this.rayAt(clientX, clientY);
     this.raycaster.near = 0;
     this.raycaster.far = Infinity;
-    const hit = this.raycaster.intersectObject(this.mesh)[0];
+    const hit = this._firstHit();
     return hit ? this._describe(hit) : null;
   }
 
@@ -67,7 +77,7 @@ export class Picker {
     this.raycaster.ray.copy(ray);
     this.raycaster.near = 0;
     this.raycaster.far = Infinity;
-    const hit = this.raycaster.intersectObject(this.mesh)[0];
+    const hit = this._firstHit();
     return hit ? hit.distance : null;
   }
 
@@ -80,7 +90,7 @@ export class Picker {
     this.raycaster.ray.set(from, dir.divideScalar(dist));
     this.raycaster.near = 0;
     this.raycaster.far = dist;
-    const hit = this.raycaster.intersectObject(this.mesh)[0];
+    const hit = this._firstHit();
     return !!hit && hit.distance < dist - margin;
   }
 
