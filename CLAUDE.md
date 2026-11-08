@@ -50,7 +50,7 @@ All changes to landmarks and the template go through `Session`, which fires a `c
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source is "GitHub Actions", so nothing is published without this workflow (before it existed, the live site stayed at an old version for hours). The version in the page header (`v0.2`) shows which version is live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main` or `advanced`: `main` at the site root (students), `advanced` under `/next/` (experimental). Each part comes from the latest commit of its branch whose tests passed. The workflow runs from `main`'s copy, so change it there. The repository's Pages source is "GitHub Actions", so nothing is published without this workflow (before it existed, the live site stayed at an old version for hours). The version in the page header (`v0.2`) shows which version is live.
 
 ## Writing for the UI
 

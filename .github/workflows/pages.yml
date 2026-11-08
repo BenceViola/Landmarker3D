@@ -1,6 +1,10 @@
 name: Deploy to GitHub Pages
 
-# Publishes the app after the tests pass on main (same setup as landmarker2D).
+# Publishes the site after the tests pass on main or advanced:
+#   main      → https://benceviola.github.io/Landmarker3D/        (students)
+#   advanced  → https://benceviola.github.io/Landmarker3D/next/   (experimental)
+# Pages holds one site, so every run builds both parts, each from the latest
+# commit of its branch whose tests passed (a failing push never goes live).
 # The repository's Pages source is "GitHub Actions" (Settings → Pages), so
 # nothing is published without this workflow.
 # It can also be started by hand: Actions → Deploy to GitHub Pages → Run workflow.
@@ -8,11 +12,12 @@ on:
   workflow_run:
     workflows: [Tests]
     types: [completed]
-    branches: [main]
+    branches: [main, advanced]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -28,15 +33,38 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Find the latest tested commit of each branch
+        id: shas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          for b in main advanced; do
+            sha=$(gh run list -R "$REPO" --workflow Tests --branch "$b" --status success --limit 1 --json headSha --jq '.[0].headSha // ""')
+            echo "$b=$sha" >> "$GITHUB_OUTPUT"
+            echo "$b: ${sha:-none}"
+          done
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - name: Assemble site (the page and its scripts only, no tests)
+          ref: ${{ steps.shas.outputs.main || github.sha }}
+          path: main
+      - uses: actions/checkout@v5
+        if: ${{ steps.shas.outputs.advanced != '' }}
+        with:
+          ref: ${{ steps.shas.outputs.advanced }}
+          path: advanced
+      - name: Assemble site (the pages and their scripts only, no tests)
         run: |
           mkdir -p _site/js
-          cp index.html _site/
-          cp js/*.js _site/js/
+          cp main/index.html _site/
+          cp main/js/*.js _site/js/
+          if [ -d advanced ]; then
+            mkdir -p _site/next/js
+            cp advanced/index.html _site/next/
+            cp advanced/js/*.js _site/next/js/
+          fi
           touch _site/.nojekyll
+          find _site -type f | sort
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
