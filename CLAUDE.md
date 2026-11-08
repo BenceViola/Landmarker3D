@@ -52,6 +52,11 @@ All changes to landmarks and the template go through `Session`, which fires a `c
 
 GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source is "GitHub Actions", so nothing is published without this workflow (before it existed, the live site stayed at an old version for hours). The version in the page header (`v0.2`) shows which version is live.
 
+## Branches
+
+- `main`: what students use; published to GitHub Pages.
+- `advanced`: experiments (planes, curves). Plan in `docs/plans/advanced-features.md`. Merge `main` into it after changes on `main`; merge back only when a feature is tested and the master spec covers what it saves.
+
 ## Writing for the UI
 
 Short, plain sentences from the student's side of the screen. Errors say what went wrong and what to do about it. No jargon a biology student wouldn't know.
