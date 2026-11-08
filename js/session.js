@@ -5,7 +5,15 @@
 // Every change goes through this class, which keeps undo/redo snapshots of
 // the whole set and fires a 'change' event the panels and markers listen to.
 
+import { curveDone, curveState, nPointsOf, MAX_CURVE_POINTS } from './curves.js';
+
 export const ADHOC = '+adhoc'; // active "landmark" meaning: the next click adds an ad hoc point
+// A curve's control point in marker ids: "C01#2" is the third clicked point of C01.
+export const cpKey = (curveId, i) => `${curveId}#${i}`;
+export const parseCpKey = (key) => {
+  const m = /^(.+)#(\d+)$/.exec(String(key));
+  return m ? { id: m[1], index: Number(m[2]) } : null;
+};
 
 // Landmark JSON format. v0.2 added 2D image data; this app stays 3D, so its
 // templates declare dimensions 3 and 2D templates are refused. v0.3 added the
@@ -33,6 +41,7 @@ export function newRecord(fields = {}) {
     uid: ++uidCounter,
     specimen: { id: 'specimen' },
     points: [],
+    curves: [], // curve entries (spec: Curves): control_points, points, length, sampling
     file: null, // the mesh File, kept so the mesh can be read again after it is unloaded
     thumb: null, // small picture of the mesh, as a data URL
     isSample: false,
@@ -66,6 +75,7 @@ export function checkTemplate(template) {
   if (dims !== 3) return `The template’s "dimensions" is ${JSON.stringify(dims)}; it must be 2 or 3.`;
   if (!Array.isArray(template.landmarks)) return 'The template has no "landmarks" list.';
   if (template.planes !== undefined && !Array.isArray(template.planes)) return 'The template’s "planes" isn’t a list.';
+  if (template.curves !== undefined && !Array.isArray(template.curves)) return 'The template’s "curves" isn’t a list.';
   return null;
 }
 
@@ -93,6 +103,8 @@ export const EXAMPLE_TEMPLATE = {
 };
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
+// Does a specimen have anything worth saving?
+export const recordHasData = (rec) => rec.points.length > 0 || (rec.curves || []).length > 0;
 const stamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 export class Session extends EventTarget {
@@ -182,17 +194,22 @@ export class Session extends EventTarget {
     return this.records[(i + delta + n) % n];
   }
 
-  // Template landmarks done (placed, estimated or missing) on a specimen.
+  // Template landmarks and curves done (placed, estimated or missing) on a specimen.
   progressOf(rec = this.current) {
     const ids = new Set(rec.points.filter((p) => p.template_id !== null).map((p) => p.template_id));
-    const total = this.template.landmarks.length;
-    const done = this.template.landmarks.filter((d) => ids.has(d.id)).length;
+    const curves = this.curveDefs;
+    const total = this.template.landmarks.length + curves.length;
+    const done =
+      this.template.landmarks.filter((d) => ids.has(d.id)).length +
+      curves.filter((c) => curveDone((rec.curves || []).find((e) => e.id === c.id))).length;
     return { done, total };
   }
 
-  // Does any specimen have a point for this landmark id?
+  // Does any specimen have a point or curve with this id?
   hasData(id) {
-    return this.records.some((r) => r.points.some((p) => p.id === id || p.template_id === id));
+    return this.records.some(
+      (r) => r.points.some((p) => p.id === id || p.template_id === id) || (r.curves || []).some((c) => c.id === id)
+    );
   }
 
   // ---- Reading -----------------------------------------------------------
@@ -201,52 +218,83 @@ export class Session extends EventTarget {
     return this.template.landmarks.find((d) => d.id === id) || null;
   }
 
+  get curveDefs() {
+    return this.template.curves || [];
+  }
+
+  curveDef(id) {
+    return this.curveDefs.find((c) => c.id === id) || null;
+  }
+
+  // The current specimen's entry for a curve.
+  curve(id) {
+    return (this.current.curves || []).find((c) => c.id === id) || null;
+  }
+
+  isCurve(id) {
+    return !!this.curveDef(id);
+  }
+
   point(id) {
     return this.points.find((p) => p.id === id) || null;
   }
 
   // 'todo' when the template landmark has no entry yet (spec: "not yet done").
   stateOf(id) {
+    if (this.isCurve(id)) return curveState(this.curve(id));
     return this.point(id)?.status || 'todo';
   }
 
   labelOf(id) {
     if (id === ADHOC) return 'Ad hoc point';
+    if (this.isCurve(id)) return this.curveDef(id).name || id;
     return this.point(id)?.label || this.def(id)?.name || id;
   }
 
-  // Template landmarks in placement order, then ad hoc points.
+  // Template landmarks in placement order, then curves, then ad hoc points.
   rows() {
     const rows = this.template.landmarks.map((def, i) => ({
       id: def.id,
+      kind: 'landmark',
       def,
       point: this.point(def.id),
       order: i + 1,
     }));
+    for (const def of this.curveDefs) rows.push({ id: def.id, kind: 'curve', def, curve: this.curve(def.id), order: null });
     for (const p of this.points) {
-      if (p.template_id === null) rows.push({ id: p.id, def: null, point: p, order: null });
+      if (p.template_id === null) rows.push({ id: p.id, kind: 'adhoc', def: null, point: p, order: null });
     }
     return rows;
   }
 
   counts() {
-    const c = { total: this.template.landmarks.length, placed: 0, estimated: 0, missing: 0, todo: 0, adhoc: 0 };
+    const c = { total: this.template.landmarks.length + this.curveDefs.length, placed: 0, estimated: 0, missing: 0, todo: 0, partial: 0, adhoc: 0 };
     for (const def of this.template.landmarks) c[this.stateOf(def.id)]++;
+    for (const def of this.curveDefs) c[this.stateOf(def.id)]++;
+    c.todo += c.partial; // a curve that isn't finished is still to do
+    delete c.partial;
     c.adhoc = this.points.filter((p) => p.template_id === null).length;
     return c;
   }
 
-  // Next template landmark without an entry, after `afterId`, wrapping round.
-  // A replicate placed in random order follows its own shuffled order.
+  // Is this template landmark or curve done on the current specimen?
+  isDone(id) {
+    return this.isCurve(id) ? curveDone(this.curve(id)) : !!this.point(id);
+  }
+
+  // Next template landmark or curve not done yet, after `afterId`, wrapping
+  // round. Landmarks come first, then curves (their ends may need the
+  // landmarks). A replicate placed in random order follows its own shuffled
+  // order for the landmarks.
   nextTodo(afterId) {
     const known = new Set(this.template.landmarks.map((d) => d.id));
     const order = this.current.order?.filter((id) => known.has(id));
-    const ids = order?.length === known.size ? order : [...known];
+    const ids = [...(order?.length === known.size ? order : [...known]), ...this.curveDefs.map((c) => c.id)];
     if (!ids.length) return null;
     const start = afterId ? ids.indexOf(afterId) + 1 : 0;
     for (let k = 0; k < ids.length; k++) {
       const id = ids[(start + k) % ids.length];
-      if (!this.point(id)) return id;
+      if (!this.isDone(id)) return id;
     }
     return null;
   }
@@ -282,7 +330,7 @@ export class Session extends EventTarget {
   _snapshot() {
     return JSON.stringify({
       template: this.template,
-      points: this.records.map((r) => [r.uid, r.points]),
+      points: this.records.map((r) => [r.uid, r.points, r.curves || []]),
       current: this.current.uid,
       activeId: this.activeId,
     });
@@ -291,10 +339,11 @@ export class Session extends EventTarget {
   _restore(snapshot) {
     const s = JSON.parse(snapshot);
     this.template = s.template;
-    for (const [uid, points] of s.points) {
+    for (const [uid, points, curves] of s.points) {
       const rec = this.record(uid);
       if (rec) {
         rec.points = points;
+        rec.curves = curves || [];
         rec.dirty = true;
       }
     }
@@ -336,8 +385,10 @@ export class Session extends EventTarget {
   }
 
   // Place (or re-place) a landmark at a surface hit, then move on to the next to-do.
+  // For a curve, a click adds the next control point and the curve stays selected.
   place(id, hit) {
     if (!id || !hit) return null;
+    if (this.isCurve(id)) return this.addControlPoint(id, hit);
     this._commit();
     let p;
     if (id === ADHOC) {
@@ -364,6 +415,16 @@ export class Session extends EventTarget {
   }
 
   moveTo(id, hit) {
+    const cp = parseCpKey(id);
+    if (cp) {
+      const c = this.curve(cp.id);
+      const target = c?.control_points?.[cp.index];
+      if (!target || !hit) return;
+      target.position = hit.position;
+      if (hit.anchor) target.anchor = hit.anchor;
+      this._emit('move');
+      return;
+    }
     const p = this.point(id);
     if (!p || !hit) return;
     Object.assign(p, hit, { placed_at: stamp() });
@@ -380,6 +441,18 @@ export class Session extends EventTarget {
 
   markMissing(id) {
     if (!id || id === ADHOC) return;
+    if (this.isCurve(id)) {
+      this._commit();
+      const c = this._ensureCurve(id);
+      c.status = 'missing';
+      c.control_points = [];
+      c.points = [];
+      delete c.length;
+      delete c.sampling;
+      if (this.activeId === id) this.activeId = this.nextTodo(id);
+      this._emit('status');
+      return;
+    }
     this._commit();
     let p = this.point(id);
     if (!p) {
@@ -397,6 +470,14 @@ export class Session extends EventTarget {
 
   // Toggle between placed and estimated (only for points that have a position).
   toggleEstimated(id) {
+    if (this.isCurve(id)) {
+      const c = this.curve(id);
+      if (!c || !c.points?.length) return;
+      this._commit();
+      c.status = c.status === 'estimated' ? 'placed' : 'estimated';
+      this._emit('status');
+      return;
+    }
     const p = this.point(id);
     if (!p || !p.position) return;
     this._commit();
@@ -406,6 +487,16 @@ export class Session extends EventTarget {
 
   // Remove a point. Template landmarks go back to "to do"; ad hoc points are deleted.
   clear(id) {
+    if (this.isCurve(id)) {
+      const list = this.current.curves;
+      const j = list.findIndex((c) => c.id === id);
+      if (j < 0) return;
+      this._commit();
+      list.splice(j, 1);
+      this.activeId = id;
+      this._emit('clear');
+      return;
+    }
     const i = this.points.findIndex((p) => p.id === id);
     if (i < 0) return;
     this._commit();
@@ -415,7 +506,7 @@ export class Session extends EventTarget {
   }
 
   setNote(id, note) {
-    const p = this.point(id);
+    const p = this.isCurve(id) ? this.curve(id) : this.point(id);
     if (!p) return;
     const text = note.trim();
     if ((p.note || '') === text) return;
@@ -425,12 +516,13 @@ export class Session extends EventTarget {
     this._emit('note');
   }
 
-  // Replace the template and the current specimen's points with those from
-  // an opened landmark file.
-  load(template, points) {
+  // Replace the template and the current specimen's points (and curves)
+  // with those from an opened landmark file.
+  load(template, points, curves = []) {
     this.template = clone(template);
     this.template.dimensions = DIMENSIONS;
     this.points = clone(points);
+    this.current.curves = clone(curves);
     this._clearHistory();
     this.activeId = this.nextTodo(null);
     this._emit('load');
@@ -445,9 +537,65 @@ export class Session extends EventTarget {
   // Clear the current specimen's points and all history; keep the template.
   resetPoints() {
     this.points = [];
+    this.current.curves = [];
     this._clearHistory();
     this.activeId = this.nextTodo(null);
     this._emit('reset');
+  }
+
+  // ---- Curves on the specimen ----------------------------------------------
+
+  _ensureCurve(id) {
+    let c = this.curve(id);
+    if (!c) {
+      c = { id, template_id: id, status: 'placed', control_points: [], points: [] };
+      this.current.curves.push(c);
+    }
+    return c;
+  }
+
+  addControlPoint(id, hit) {
+    this._commit();
+    const c = this._ensureCurve(id);
+    if (c.status === 'missing') c.status = 'placed';
+    const cp = { position: hit.position };
+    if (hit.anchor) cp.anchor = hit.anchor;
+    c.control_points.push(cp);
+    c.placed_at = stamp();
+    this._emit('place');
+    return id;
+  }
+
+  // Take back the last clicked point of a curve (Backspace).
+  removeLastControlPoint(id) {
+    const c = this.curve(id);
+    if (!c?.control_points?.length) return false;
+    this._commit();
+    c.control_points.pop();
+    if (!c.control_points.length && !c.note && c.status !== 'missing') {
+      this.current.curves = this.current.curves.filter((x) => x !== c);
+    }
+    this._emit('clear');
+    return true;
+  }
+
+  // The semilandmarks computed from a curve's clicks (curves.js). Derived
+  // data, so no undo step and no event; returns true if anything changed.
+  setCurveResult(rec, id, { points, length, sampling }) {
+    const c = (rec.curves || []).find((x) => x.id === id);
+    if (!c || c.status === 'missing') return false;
+    const before = JSON.stringify([c.points, c.length, c.sampling]);
+    c.points = points;
+    if (points.length) {
+      c.length = length;
+      c.sampling = sampling;
+    } else {
+      delete c.length;
+      delete c.sampling;
+    }
+    const changed = JSON.stringify([c.points, c.length, c.sampling]) !== before;
+    if (changed) rec.dirty = true;
+    return changed;
   }
 
   _nextAdhocNumber() {
@@ -494,7 +642,7 @@ export class Session extends EventTarget {
       if (newId !== id) {
         if (!newId) return 'Every landmark needs an ID.';
         if (!ID_RE.test(newId)) return 'IDs can only use letters, digits, “-”, “_” and “.”.';
-        if (this.def(newId) || this.plane(newId) || this.hasData(newId)) return `${newId} is already used.`;
+        if (this._idTaken(newId)) return `${newId} is already used.`;
         if (this.hasData(id)) return 'This landmark already has data, so its ID can’t change.';
       }
     }
@@ -511,6 +659,8 @@ export class Session extends EventTarget {
       def.id = newId;
       for (const d of this.template.landmarks) if (d.bilateral_pair === id) d.bilateral_pair = newId;
       for (const pl of this.template.planes || []) pl.landmarks = pl.landmarks.map((x) => (x === id ? newId : x));
+      for (const c of this.curveDefs) for (const k of ['start', 'end']) if (c[k] === id) c[k] = newId;
+      if (Array.isArray(this.template.export_order)) this.template.export_order = this.template.export_order.map((x) => (x === id ? newId : x));
       if (this.activeId === id) this.activeId = newId;
     }
     this._emit('template');
@@ -530,6 +680,8 @@ export class Session extends EventTarget {
     for (const d of this.template.landmarks) if (d.bilateral_pair === id) delete d.bilateral_pair;
     // A plane loses the landmark; with fewer than three it waits until more are chosen.
     for (const pl of this.template.planes || []) pl.landmarks = pl.landmarks.filter((x) => x !== id);
+    // A curve that started or ended on it gets a free end.
+    for (const c of this.curveDefs) for (const k of ['start', 'end']) if (c[k] === id) delete c[k];
     if (this.activeId === id) this.activeId = this.nextTodo(null);
     this._emit('template');
   }
@@ -569,8 +721,9 @@ export class Session extends EventTarget {
     this._commit();
     this.template = { id: 'untitled', name: 'Untitled template', version: '1.0', dimensions: DIMENSIONS, landmarks: [] };
     for (const r of this.records) {
-      if (r.points.length) r.dirty = true;
+      if (recordHasData(r)) r.dirty = true;
       r.points = [];
+      r.curves = [];
     }
     this.activeId = null;
     this._emit('template');
@@ -646,8 +799,122 @@ export class Session extends EventTarget {
     do {
       n++;
       id = `PL${String(n).padStart(2, '0')}`;
-    } while (this.def(id) || this.plane(id) || this.hasData(id));
+    } while (this._idTaken(id));
     return id;
+  }
+
+  // Landmarks, curves and planes share one set of IDs.
+  _idTaken(id) {
+    return !!(this.def(id) || this.curveDef(id) || this.plane(id) || this.hasData(id));
+  }
+
+  // ---- Curves in the template -------------------------------------------------
+
+  // Returns the new curve's id, or null.
+  addCurveDef(name) {
+    const n = String(name || '').trim();
+    if (!n) return null;
+    this._commit();
+    let k = 0;
+    for (const c of this.curveDefs) {
+      const m = /^C(\d+)$/.exec(c.id);
+      if (m) k = Math.max(k, Number(m[1]));
+    }
+    let id;
+    do {
+      k++;
+      id = `C${String(k).padStart(2, '0')}`;
+    } while (this._idTaken(id));
+    (this.template.curves ||= []).push({ id, name: n, n_points: 10, path: 'euclidean', spacing: 'equal_arc_length' });
+    if (!this.activeId) this.activeId = id;
+    this._emit('template');
+    return id;
+  }
+
+  /**
+   * Change a template curve. patch: { id, name, description, start, end,
+   * n_points, closed }. Returns an error message, or null when applied.
+   */
+  updateCurveDef(id, patch) {
+    const c = this.curveDef(id);
+    if (!c) return null;
+    let newId = id;
+    if ('id' in patch) {
+      newId = String(patch.id).trim();
+      if (newId !== id) {
+        if (!newId) return 'Every curve needs an ID.';
+        if (!ID_RE.test(newId)) return 'IDs can only use letters, digits, “-”, “_” and “.”.';
+        if (this._idTaken(newId)) return `${newId} is already used.`;
+        if (this.hasData(id)) return 'This curve already has data, so its ID can’t change.';
+      }
+    }
+    const name = 'name' in patch ? String(patch.name).trim() : c.name;
+    if (!name) return 'Every curve needs a name.';
+    let n = nPointsOf(c);
+    if ('n_points' in patch) {
+      n = Number(patch.n_points);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_CURVE_POINTS) return `The number of points must be a whole number from 1 to ${MAX_CURVE_POINTS}.`;
+    }
+    const closed = 'closed' in patch ? !!patch.closed : !!c.closed;
+    const ends = {};
+    for (const k of ['start', 'end']) {
+      ends[k] = k in patch ? patch[k] || null : c[k] || null;
+      if (ends[k] && !this.def(ends[k])) return `${ends[k]} is not a landmark in this template.`;
+    }
+    if (!closed && ends.start && ends.start === ends.end) return 'A curve can’t start and end on the same landmark. Make it a closed loop instead.';
+    const description = 'description' in patch ? String(patch.description).trim() : c.description || '';
+
+    const next = { ...c, id: newId, name, n_points: n, path: c.path || 'euclidean', spacing: c.spacing || 'equal_arc_length' };
+    if (description) next.description = description;
+    else delete next.description;
+    if (closed) {
+      next.closed = true;
+      delete next.start;
+      delete next.end;
+    } else {
+      delete next.closed;
+      for (const k of ['start', 'end']) {
+        if (ends[k]) next[k] = ends[k];
+        else delete next[k];
+      }
+    }
+    if (JSON.stringify(next) === JSON.stringify(c)) return null;
+    this._commit();
+    Object.keys(c).forEach((k) => delete c[k]);
+    Object.assign(c, next);
+    if (newId !== id) {
+      if (Array.isArray(this.template.export_order)) this.template.export_order = this.template.export_order.map((x) => (x === id ? newId : x));
+      if (this.activeId === id) this.activeId = newId;
+    }
+    this._emit('template');
+    return null;
+  }
+
+  removeCurveDef(id) {
+    const list = this.curveDefs;
+    const i = list.findIndex((c) => c.id === id);
+    if (i < 0) return;
+    this._commit();
+    list.splice(i, 1);
+    if (!list.length) delete this.template.curves;
+    for (const r of this.records) {
+      const kept = (r.curves || []).filter((c) => c.id !== id && c.template_id !== id);
+      if (kept.length !== (r.curves || []).length) r.dirty = true;
+      r.curves = kept;
+    }
+    if (Array.isArray(this.template.export_order)) this.template.export_order = this.template.export_order.filter((x) => x !== id);
+    if (this.activeId === id) this.activeId = this.nextTodo(null);
+    this._emit('template');
+  }
+
+  moveCurveDef(id, delta) {
+    const list = this.curveDefs;
+    const i = list.findIndex((c) => c.id === id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    this._commit();
+    [list[i], list[j]] = [list[j], list[i]];
+    this._emit('template');
   }
 
   _nextDefId() {
@@ -660,7 +927,7 @@ export class Session extends EventTarget {
     do {
       n++;
       id = `LM${String(n).padStart(2, '0')}`;
-    } while (this.def(id) || this.plane(id) || this.hasData(id));
+    } while (this._idTaken(id));
     return id;
   }
 }

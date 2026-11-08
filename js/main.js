@@ -13,6 +13,7 @@ import { setupStrip } from './specimen-strip.js';
 import { setupSpecimenPanel } from './specimen-panel.js';
 import { setupFiles } from './files-panel.js';
 import { PlaneView } from './plane-view.js';
+import { CurveView } from './curve-view.js';
 import { setupPlanesPanel } from './planes-panel.js';
 
 const $ = (id) => document.getElementById(id);
@@ -37,13 +38,17 @@ try {
   app.picker = new Picker(app.viewer);
   app.markers = new Markers(app.viewer, app.picker, session);
   app.planeView = new PlaneView(app.viewer);
-  attachInteraction({ viewer: app.viewer, picker: app.picker, markers: app.markers, session, intercept: (hit) => planes?.intercept(hit) });
+  app.curveView = new CurveView(app.viewer, app.picker, session);
+  attachInteraction({
+    viewer: app.viewer, picker: app.picker, markers: app.markers, curves: app.curveView, session,
+    intercept: (hit) => planes?.intercept(hit),
+  });
 } catch (err) {
   console.error(err);
   webgl = false;
   showMessage('error', 'This browser could not start 3D graphics (WebGL). Try a recent version of Chrome, Edge, Firefox or Safari.');
 }
-const { viewer, picker, markers } = app;
+const { viewer, picker, markers, curveView } = app;
 
 function applyTheme() {
   const color = getComputedStyle(document.documentElement).getPropertyValue('--viewport').trim();
@@ -57,7 +62,7 @@ new MutationObserver(applyTheme).observe(document.documentElement, { attributes:
 
 const specimens = webgl ? setupSpecimens(app) : null;
 app.specimens = specimens;
-const landmarkPanel = new LandmarkPanel($('tab-landmarks'), session);
+const landmarkPanel = new LandmarkPanel($('tab-landmarks'), session, { curveError: (id) => curveView?.errorOf(id) });
 const templateEditor = new TemplateEditor($('template-editor'), session);
 const strip = specimens ? setupStrip($('strip'), { session, specimens, openMeshPicker: app.openMeshPicker }) : null;
 const specimenPanel = specimens ? setupSpecimenPanel(app) : null;
@@ -72,6 +77,8 @@ session.addEventListener('change', (e) => {
     specimens.show(session.current);
     return; // show() renders everything when the mesh is on screen
   }
+  if (kind === 'move') scheduleCurves();
+  else curveView?.update();
   markers?.sync();
   landmarkPanel.render(kind);
   if (kind === 'move') planes?.update3D();
@@ -85,7 +92,19 @@ session.addEventListener('change', (e) => {
   renderUndo();
 });
 
+// While a point is dragged, curves are recomputed at most once a frame.
+let curveFrame = 0;
+function scheduleCurves() {
+  if (curveFrame) return;
+  curveFrame = requestAnimationFrame(() => {
+    curveFrame = 0;
+    curveView?.update();
+    landmarkPanel.render('move');
+  });
+}
+
 function renderAll() {
+  curveView?.update();
   markers?.sync();
   landmarkPanel.render();
   templateEditor.render();
@@ -120,9 +139,14 @@ function renderStageHint() {
   } else if (id === ADHOC) {
     el.innerHTML = '<span class="verb">Click to add</span> an ad hoc point';
   } else if (!id) {
-    el.innerHTML = session.template.landmarks.length
-      ? '<span class="verb">All landmarks done</span>'
+    el.innerHTML = session.template.landmarks.length || session.curveDefs.length
+      ? '<span class="verb">All done</span>'
       : '<span class="verb">No landmarks</span> in the template';
+  } else if (session.isCurve(id)) {
+    const def = session.curveDef(id);
+    const n = session.curve(id)?.control_points?.length || 0;
+    const ends = def.closed ? ' · closed loop' : def.start || def.end ? ` · from ${def.start || 'free'} to ${def.end || 'free'}` : '';
+    el.innerHTML = `<span class="verb">Click along</span> <span class="code">${escapeHtml(id)}</span> ${escapeHtml(def.name)} <span class="code">${n} click${n === 1 ? '' : 's'}${escapeHtml(ends)}</span>`;
   } else {
     const st = session.stateOf(id);
     const verb = st === 'todo' || st === 'missing' ? 'Click to place' : 'Drag to move';
@@ -153,8 +177,14 @@ function selectTab(tab) {
 $('undo-btn').addEventListener('click', () => session.undo());
 $('redo-btn').addEventListener('click', () => session.redo());
 $('adhoc-btn').addEventListener('click', () => session.setActive(ADHOC));
-$('labels-toggle').addEventListener('change', (e) => markers?.setShowLabels(e.target.checked));
-$('marker-size').addEventListener('input', (e) => markers?.setSizeFactor(Number(e.target.value)));
+$('labels-toggle').addEventListener('change', (e) => {
+  markers?.setShowLabels(e.target.checked);
+  curveView?.setShowLabels(e.target.checked);
+});
+$('marker-size').addEventListener('input', (e) => {
+  markers?.setSizeFactor(Number(e.target.value));
+  curveView?.setSizeFactor(Number(e.target.value));
+});
 
 // ---- Opening files -------------------------------------------------------
 
@@ -266,7 +296,13 @@ window.addEventListener('keydown', (e) => {
     case 'h': case 'H': viewer?.viewFrom('home'); break;
     case 'm': case 'M': session.markMissing(id); break;
     case 'e': case 'E': session.toggleEstimated(id); break;
-    case 'Delete': case 'Backspace': if (id && id !== ADHOC) session.clear(id); break;
+    case 'Backspace':
+      e.preventDefault();
+      // On a curve, Backspace takes back the last clicked point; Delete clears it.
+      if (session.isCurve(id)) session.removeLastControlPoint(id);
+      else if (id && id !== ADHOC) session.clear(id);
+      break;
+    case 'Delete': if (id && id !== ADHOC) session.clear(id); break;
     case 'n': case 'N': session.step(1); break;
     case 'p': case 'P': session.step(-1); break;
     case ']': if (session.records.length > 1) session.switchTo(session.neighbour(1).uid); break;

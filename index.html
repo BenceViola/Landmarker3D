@@ -30,6 +30,7 @@
     --m-placed: #2f63e0;
     --m-estimated: #d98a00;
     --m-active: #e0337a;
+    --m-curve: #0e9fc7;
     --m-missing: #8a909b;
     /* Progress badges on the specimen strip: white text on both, in both themes */
     --badge-todo: #c0362c;
@@ -301,6 +302,7 @@
   .active-state { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 12.5px; }
   .active-state .coords, .active-state .pair { font-family: var(--font-data); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .active-hint { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .active-problem { margin: 0; font-size: 12.5px; color: var(--danger); font-weight: 500; }
   .active-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .active-actions:empty { display: none; }
   .note input { font-size: 12.5px; }
@@ -469,6 +471,7 @@
   .tpl-bulk summary { cursor: pointer; font-size: 13px; color: var(--accent); }
   .tpl-bulk[open] { display: flex; flex-direction: column; gap: 6px; }
   .tpl-bulk[open] .btn { align-self: flex-start; }
+  .tpl-h { margin: 6px 0 0; }
   .tpl-danger { padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 
   /* ---- Mesh tab ---- */
@@ -548,6 +551,8 @@
   }
   .lm-label.is-estimated span { box-shadow: inset 2px 0 0 var(--m-estimated), 0 1px 2px rgb(0 0 0 / 0.18); }
   .lm-label.is-active span { background: var(--m-active); color: #fff; font-size: 12px; }
+  .lm-label.is-curve span { box-shadow: inset 2px 0 0 var(--m-curve), 0 1px 2px rgb(0 0 0 / 0.18); }
+  .lm-label.is-curve.is-active span { box-shadow: none; }
 
   .stage-top {
     position: absolute;
@@ -831,6 +836,7 @@
           <dt>N / P</dt><dd>next / previous landmark</dd>
           <dt>[ · ]</dt><dd>previous · next specimen</dd>
           <dt>M · E · Del</dt><dd>missing · estimated · clear</dd>
+          <dt>Backspace</dt><dd>on a curve: take back the last point</dd>
           <dt>Ctrl/⌘ Z</dt><dd>undo (add Shift to redo)</dd>
           <dt>Ctrl/⌘ S</dt><dd>save the landmark file</dd>
           <dt>F · H</dt><dd>fit view · default view</dd>

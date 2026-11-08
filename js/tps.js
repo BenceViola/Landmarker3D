@@ -1,31 +1,27 @@
 // TPS export (the format of tpsDig / tpsUtil, read by geomorph's readland.tps).
 //
-// 3D blocks use the LM3= header. Rows follow the template's export order,
-// followed by ad hoc points. Missing landmarks, and template landmarks not
+// 3D blocks use the LM3= header. Rows follow the template's export order
+// (landmarks, then curve semilandmarks), followed by ad hoc points. Missing landmarks, and template landmarks not
 // placed yet, are written with the missing value (default -999), as in the spec.
 // Coordinates are written as stored: mesh space, in the mesh's units.
 
-import { exportOrder } from './landmark-file.js';
+import { exportRows } from './export-rows.js';
 
 const fmt = (n) => String(Number(n.toFixed(6)));
 
 // One specimen block. `adhocIds` decides which ad hoc points are written.
-export function tpsBlock({ id, template, points, adhocIds = null, missing = '-999' }) {
-  const byTemplate = new Map();
-  for (const p of points) if (p.template_id !== null) byTemplate.set(p.template_id, p);
-  const adhoc = points.filter((p) => p.template_id === null);
-  const adhocList = adhocIds
-    ? adhocIds.map((aid) => adhoc.find((p) => p.id === aid) || null)
-    : [];
-
-  const rows = [...exportOrder(template).map((tid) => byTemplate.get(tid) || null), ...adhocList];
+export function tpsBlock({ id, template, points, curves = [], adhocIds = null, missing = '-999' }) {
+  const all = exportRows({ template, points, curves });
+  const fixed = all.filter((r) => !r.adhoc);
+  const adhoc = new Map(all.filter((r) => r.adhoc).map((r) => [r.point, r]));
+  const rows = [...fixed, ...(adhocIds || []).map((aid) => adhoc.get(aid) || null)];
   let notPlaced = 0;
   const lines = [`LM3=${rows.length}`];
-  for (const p of rows) {
-    if (p && p.status !== 'missing' && Array.isArray(p.position)) {
-      lines.push(p.position.map(fmt).join(' '));
+  for (const r of rows) {
+    if (r && r.pos) {
+      lines.push(r.pos.map(fmt).join(' '));
     } else {
-      if (!p) notPlaced++;
+      if (!r || r.status === 'not_done') notPlaced++;
       lines.push(`${missing} ${missing} ${missing}`);
     }
   }
@@ -59,13 +55,13 @@ export function toTps(states, { ids = states.map((st) => st.specimen.id), includ
   let notPlaced = 0;
   const text = states
     .map((st, i) => {
-      const block = tpsBlock({ id: ids[i], template: st.template, points: st.points, adhocIds, missing });
+      const block = tpsBlock({ id: ids[i], template: st.template, points: st.points, curves: st.curves, adhocIds, missing });
       notPlaced += block.notPlaced;
       return block.text;
     })
     .join('');
   if (notPlaced) {
-    notes.push(`${notPlaced} landmark${notPlaced === 1 ? ' was' : 's were'} never placed and ${notPlaced === 1 ? 'is' : 'are'} written as missing.`);
+    notes.push(`${notPlaced} point${notPlaced === 1 ? ' was' : 's were'} never placed (landmarks, or semilandmarks of unfinished curves) and ${notPlaced === 1 ? 'is' : 'are'} written as missing.`);
   }
   return { text, notes, notPlaced };
 }

@@ -17,6 +17,7 @@ export const stateOf = (parsed) => ({
   specimen: parsed.doc.specimen,
   template: parsed.template,
   points: parsed.points,
+  curves: parsed.curves,
   provenance: parsed.doc.provenance || {},
   name: parsed.name,
 });
@@ -40,6 +41,7 @@ export function handInFiles(docs, { operator = '', missing = '-999', includeAdho
     specimen: doc.specimen,
     template: doc.template,
     points: doc.landmarks,
+    curves: doc.curves || [],
     provenance: doc.provenance || {},
   }));
   const ids = exportIds(states);

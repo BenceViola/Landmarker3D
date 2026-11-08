@@ -104,3 +104,4 @@ It would be exported next to the TPS (and put in the hand-in zip). The 2D app do
 ## Status
 
 - 2026-11-08: planes done on this branch (spec v0.4 `template.planes`, Planes tab, planes from 3 clicks, cut line, cut-away, distance tables for midline landmarks and left/right pairs). Next: test with real meshes, then curves. Idea from testing planes: a curve could start from where a plane cuts the mesh.
+- 2026-11-08: basic curves done on this branch: template curves (C01…, n_points, start/end landmarks, closed loops), tracing by clicking, dragging clicked points, Backspace to take back a click, euclidean paths moved onto the surface, saving (top-level `curves`, format 0.2.0) and TPS/CSV rows. Next: geodesic paths, then the geomorph sliders file.

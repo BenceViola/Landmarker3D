@@ -132,7 +132,7 @@ describe('several specimens in one TPS', () => {
   test('never-placed landmarks are counted and noted', () => {
     const out = toTps([st('A', { skip: ['LM01'] }), st('B', { skip: ['LM02', 'LM03'] })]);
     assert.equal(out.notPlaced, 3);
-    assert.match(out.notes.join(' '), /3 landmarks were never placed/);
+    assert.match(out.notes.join(' '), /3 points were never placed/);
   });
 
   test('an empty set gives an empty file', () => {

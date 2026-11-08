@@ -1,9 +1,13 @@
-// The Landmarks tab: progress, the active landmark with its placement
-// instructions and actions, and the list of all landmarks with their state.
+// The Landmarks tab: progress, the active landmark (or curve) with its
+// placement instructions and actions, and the list of all landmarks and
+// curves with their state.
 
 import { ADHOC } from './session.js';
+import { nPointsOf } from './curves.js';
 
-const STATE_WORDS = { todo: 'To do', placed: 'Placed', estimated: 'Estimated', missing: 'Missing' };
+const STATE_WORDS = { todo: 'To do', partial: 'Started', placed: 'Placed', estimated: 'Estimated', missing: 'Missing' };
+const fmtLen = (v) => (v >= 100 ? v.toFixed(1) : v.toFixed(2));
+const unitWord = (u) => (u && u !== 'unknown' ? u.replace('um', 'µm') : 'units');
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -11,8 +15,10 @@ export const esc = (s) =>
 const coord = (p) => p.position.map((n) => n.toFixed(2)).join(', ');
 
 export class LandmarkPanel {
-  constructor(root, session) {
+  // `curveError(id)` says why a curve has no semilandmarks yet (curve-view.js).
+  constructor(root, session, { curveError = () => null } = {}) {
     this.session = session;
+    this.curveError = curveError;
     this.progressEl = root.querySelector('#lm-progress');
     this.activeEl = root.querySelector('#lm-active');
     this.listEl = root.querySelector('#lm-list');
@@ -30,6 +36,7 @@ export class LandmarkPanel {
       if (btn.dataset.act === 'estimated') session.toggleEstimated(id);
       if (btn.dataset.act === 'clear') session.clear(id);
       if (btn.dataset.act === 'cancel-adhoc') session.setActive(session.nextTodo(null));
+      if (btn.dataset.act === 'undo-click') session.removeLastControlPoint(id);
     });
     this.activeEl.addEventListener('change', (e) => {
       if (e.target.id === 'lm-note') session.setNote(session.activeId, e.target.value);
@@ -84,6 +91,11 @@ export class LandmarkPanel {
       return;
     }
 
+    if (s.isCurve(id)) {
+      this._renderCurve(id);
+      return;
+    }
+
     const def = s.def(id);
     const p = s.point(id);
     const state = p?.status || 'todo';
@@ -121,21 +133,77 @@ export class LandmarkPanel {
       </div>`;
   }
 
+  _renderCurve(id) {
+    const s = this.session;
+    const def = s.curveDef(id);
+    const c = s.curve(id);
+    const state = s.stateOf(id);
+    const clicks = c?.control_points?.length || 0;
+    const n = nPointsOf(def);
+    const got = c?.points?.length || 0;
+    const units = unitWord(s.current.specimen.mesh?.units);
+    const ends = def.closed
+      ? 'A closed loop: click around it, the end joins the start.'
+      : `It ${def.start ? `starts on ${def.start}` : 'has a free start'} and ${def.end ? `ends on ${def.end}` : 'a free end'}.`;
+    const err = this.curveError(id);
+    const problem =
+      state !== 'missing' && (err?.code === 'start' || err?.code === 'end')
+        ? `Place ${err.id} first: the curve ${err.code === 'start' ? 'starts' : 'ends'} there.`
+        : null;
+    const eyebrow = state === 'todo' ? 'Next to place · curve' : 'Selected curve';
+    const hint = {
+      todo: `Click points along it, in order. ${n} semilandmarks are then spread evenly along it.`,
+      partial: `Keep clicking along it${def.closed ? ' (a loop needs at least three points)' : ''}.`,
+      placed: 'Click to add points at the end, or drag a diamond to move one.',
+      estimated: 'Click to add points at the end, or drag a diamond to move one.',
+      missing: 'Marked missing. Click the mesh if you can trace it after all.',
+    }[state];
+    this.activeEl.innerHTML = `
+      <div class="active-card is-${state === 'partial' ? 'todo' : state}">
+        <span class="eyebrow">${eyebrow}</span>
+        <div class="active-title">
+          <span class="code">${esc(id)}</span>
+          <span class="active-name">${esc(def.name)}</span>
+        </div>
+        ${def.description ? `<p class="active-desc">${esc(def.description)}</p>` : ''}
+        <div class="active-state">
+          <span class="dot is-${state === 'partial' ? 'todo' : state}" aria-hidden="true"></span>
+          <span>${STATE_WORDS[state]}</span>
+          <span class="coords" id="curve-summary">${clicks} click${clicks === 1 ? '' : 's'} · ${got} of ${n} points${got && c.length ? ` · ${fmtLen(c.length)} ${esc(units)} long` : ''}</span>
+        </div>
+        <p class="active-hint">${esc(ends)} ${hint}</p>
+        ${problem ? `<p class="active-problem" role="status">${esc(problem)}</p>` : ''}
+        <div class="active-actions">
+          ${clicks ? `<button type="button" class="btn small" data-act="undo-click" title="Shortcut: Backspace">Remove last point</button>` : ''}
+          ${state !== 'missing' ? `<button type="button" class="btn small" data-act="missing" title="Shortcut: M">Missing</button>` : ''}
+          ${got ? `<button type="button" class="btn small${state === 'estimated' ? ' on' : ''}" data-act="estimated" aria-pressed="${state === 'estimated'}" title="Shortcut: E">Estimated</button>` : ''}
+          ${c ? `<button type="button" class="btn small" data-act="clear" title="Shortcut: Delete">Clear curve</button>` : ''}
+        </div>
+        ${c ? `<label class="note"><span class="visually-hidden">Note</span>
+                 <input id="lm-note" type="text" placeholder="Note, e.g. worn, traced on the other side" value="${esc(c.note || '')}"></label>` : ''}
+      </div>`;
+  }
+
   _renderList() {
     const s = this.session;
     const rows = s.rows();
     const html = [];
     let adhocHeader = false;
+    let curveHeader = false;
     for (const r of rows) {
-      if (!r.def && !adhocHeader) {
+      if (r.kind === 'adhoc' && !adhocHeader) {
         html.push(`<li class="list-divider">Ad hoc points</li>`);
         adhocHeader = true;
       }
-      const state = r.point?.status || 'todo';
+      if (r.kind === 'curve' && !curveHeader) {
+        html.push(`<li class="list-divider">Curves</li>`);
+        curveHeader = true;
+      }
+      const state = s.stateOf(r.id);
       const active = r.id === s.activeId;
       html.push(`
         <li><button type="button" class="lm-row${active ? ' is-active' : ''}" data-id="${esc(r.id)}" aria-current="${active}">
-          <span class="dot is-${state}" aria-hidden="true"></span>
+          <span class="dot is-${state === 'partial' ? 'todo' : state}" aria-hidden="true"></span>
           <span class="code">${esc(r.id)}</span>
           <span class="lm-name">${esc(s.labelOf(r.id))}</span>
           <span class="lm-state is-${state}">${STATE_WORDS[state]}</span>

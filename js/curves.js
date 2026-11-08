@@ -1,0 +1,156 @@
+// Curves with equally spaced semilandmarks (spec: Curves). Pure maths, no
+// three.js: the surface is reached through a `project` function, so this can
+// be tested on its own.
+//
+// "euclidean" path (the only one so far): straight segments between the
+// clicked points, with the ends on their landmarks when the template says so.
+// The segments are cut into many short steps and each step is moved to the
+// nearest point on the surface, so the path follows the surface between the
+// clicks. The semilandmarks are then spaced equally along that path and put
+// on the surface too (with anchor and normal, like landmarks).
+//
+// `n_points` counts the semilandmarks between anchored ends: a curve from
+// LM01 to LM02 with n_points 5 has 5 points strictly between the two
+// landmarks, which are not exported twice. A free end gets a semilandmark of
+// its own. A closed loop gets n_points spread evenly around it.
+
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const lerp = (a, b, u) => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+
+export const DEFAULT_POINTS = 10;
+export const MAX_CURVE_POINTS = 500;
+export const nPointsOf = (def) => (Number.isInteger(def?.n_points) && def.n_points > 0 ? def.n_points : DEFAULT_POINTS);
+
+/**
+ * The points the path goes through, in order: the start landmark (if
+ * anchored), the clicked points, the end landmark. `pointOf(id)` gives a
+ * landmark entry. Returns { ctrl, a, b, error } where a/b are 1 when the
+ * start/end is anchored on a landmark.
+ */
+export function curveInputs(def, entry, pointOf) {
+  const ctrl = (entry?.control_points || []).map((c) => c.position).filter(Array.isArray);
+  let a = 0;
+  let b = 0;
+  let error = null;
+  if (!def.closed) {
+    const placed = (id) => {
+      const p = pointOf(id);
+      return p && p.status !== 'missing' && Array.isArray(p.position) ? p.position : null;
+    };
+    if (def.start) {
+      const p = placed(def.start);
+      if (p) {
+        ctrl.unshift(p);
+        a = 1;
+      } else error = { code: 'start', id: def.start };
+    }
+    if (def.end) {
+      const p = placed(def.end);
+      if (p) {
+        ctrl.push(p);
+        b = 1;
+      } else error ??= { code: 'end', id: def.end };
+    }
+  }
+  return { ctrl, a, b, error };
+}
+
+// Straight segments through P cut into steps no longer than `step`.
+export function densify(P, closed, step) {
+  const pts = closed ? [...P, P[0]] : P;
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const len = dist(pts[i - 1], pts[i]);
+    const k = Math.max(1, Math.ceil(len / step));
+    for (let j = 1; j <= k; j++) out.push(j === k ? pts[i] : lerp(pts[i - 1], pts[i], j / k));
+  }
+  return out;
+}
+
+export function pathLength(D) {
+  let L = 0;
+  for (let i = 1; i < D.length; i++) L += dist(D[i - 1], D[i]);
+  return L;
+}
+
+/**
+ * n positions at equal arc length along the path D (as in the 2D app).
+ * a/b = 1 leave out an anchored start/end; a closed path gets n points
+ * around the loop starting at its first point.
+ */
+export function resample(D, n, a, b, closed) {
+  const cum = [0];
+  for (let i = 1; i < D.length; i++) cum.push(cum[i - 1] + dist(D[i - 1], D[i]));
+  const L = cum[cum.length - 1];
+  if (!(L > 0) || n < 1) return [];
+  let at;
+  if (closed) at = (k) => (k * L) / n;
+  else {
+    const den = n - 1 + a + b;
+    at = den > 0 ? (k) => ((k + a) * L) / den : () => L / 2;
+  }
+  const out = [];
+  let j = 1;
+  for (let k = 0; k < n; k++) {
+    const d = at(k);
+    while (j < cum.length - 1 && cum[j] < d) j++;
+    const seg = cum[j] - cum[j - 1];
+    out.push(lerp(D[j - 1], D[j], seg > 0 ? (d - cum[j - 1]) / seg : 0));
+  }
+  return out;
+}
+
+/**
+ * Compute one curve on one specimen.
+ *   def      template curve ({ n_points, start, end, closed, ... })
+ *   entry    specimen curve entry ({ control_points, status, ... })
+ *   pointOf  id -> landmark entry of the same specimen
+ *   project  [x,y,z] -> { position, anchor?, normal? } on the surface, or null
+ * Returns { path, points, length, error }: `path` is the surface path
+ * (positions, for drawing), `points` the semilandmarks as the file stores
+ * them. `error` is null, or { code: 'start' | 'end', id } (place that
+ * landmark first) or { code: 'few' } (not enough points yet).
+ */
+export function computeCurve(def, entry, pointOf, project, { steps = 600 } = {}) {
+  const { ctrl, a, b, error } = curveInputs(def, entry, pointOf);
+  const need = def.closed ? 3 : 2;
+  if (error || ctrl.length < need) {
+    const path = !error && ctrl.length >= 2 ? onSurface(densify(ctrl, false, chord(ctrl, false) / steps || 1), project) : [];
+    return { path, points: [], length: 0, error: error || { code: 'few', need } };
+  }
+  const closed = !!def.closed;
+  const step = chord(ctrl, closed) / steps;
+  if (!(step > 0)) return { path: [], points: [], length: 0, error: { code: 'few', need } };
+  const path = onSurface(densify(ctrl, closed, step), project);
+  const length = pathLength(path);
+  const points = resample(path, nPointsOf(def), a, b, closed).map((p) => {
+    const s = project(p);
+    if (!s) return { position: p.map(round) };
+    const out = { position: s.position };
+    if (s.anchor) out.anchor = s.anchor;
+    if (s.normal) out.normal = s.normal;
+    return out;
+  });
+  return { path, points, length: round(length), error: null };
+}
+
+const round = (n) => Math.round(n * 1e6) / 1e6; // spec: up to 6 decimal places
+const chord = (P, closed) => pathLength(closed ? [...P, P[0]] : P);
+const onSurface = (D, project) => D.map((p) => project(p)?.position || p);
+
+// What a file stores for the curve: the sampling actually used.
+export function samplingOf(def) {
+  return { path: 'euclidean', spacing: 'equal_arc_length', n_points: nPointsOf(def) };
+}
+
+// Is the curve finished on this specimen (counts as done)?
+export const curveDone = (entry) =>
+  !!entry && (entry.status === 'missing' || (Array.isArray(entry.points) && entry.points.length > 0));
+
+// A short state word for the curve: 'todo' | 'partial' | 'placed' | 'estimated' | 'missing'.
+export function curveState(entry) {
+  if (!entry) return 'todo';
+  if (entry.status === 'missing') return 'missing';
+  if (entry.points?.length) return entry.status === 'estimated' ? 'estimated' : 'placed';
+  return entry.control_points?.length ? 'partial' : 'todo';
+}

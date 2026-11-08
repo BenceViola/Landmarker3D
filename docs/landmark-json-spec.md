@@ -25,7 +25,7 @@ A file has five required top-level fields and four optional ones. The extension 
 | `specimen` | object | yes | `id`, optional `notes`, optional `replicate` (v0.3, see Replicates), and exactly one source: `mesh` (`file`, `sha256`, `units`, `vertex_count`, `face_count`) for 3D, or `image` for 2D (see 2D data). |
 | `template` | object | yes | Either embedded definitions, or `{ "ref": "<file or URL>", "id": "...", "version": "..." }`. |
 | `landmarks` | array | yes | Placed fixed landmarks (may be empty). |
-| `curves` | array | no | Reserved from v0.2. |
+| `curves` | array | no | Traced curves and their semilandmarks (v0.2), see Curves. |
 | `surfaces` | array | no | Reserved for later. |
 | `provenance` | object | no | `software`, `software_version`, `operator`, `created`, `modified` (ISO 8601). |
 | `extensions` | object | no | App- or lab-specific data, keyed by a namespace. |
@@ -66,7 +66,7 @@ Each entry in `landmarks` is one placed (or deliberately skipped) landmark.
 
 When `anchor` and `position` disagree (the mesh was changed), `position` wins and the app should warn and re-snap.
 
-## Curves (reserved, v0.2)
+## Curves (v0.2)
 
 A curve stores both what the user clicked and what was computed from it, so it can be re-edited and re-sampled later without losing the original intent.
 
@@ -87,6 +87,27 @@ Specimen curve entry:
 - `length`: path length in mesh units, and `sampling`: the `path`, `spacing` and `n_points` actually used.
 
 The TPS export writes `points` as ordinary rows; the curve definition file for geomorph sliding (which point slides between which neighbours) is generated from this structure.
+
+**Ids.** Curves share one set of ids with landmarks and planes (a curve can't be called `LM01`). Apps number new curves `C01`, `C02`, …
+
+**Number of points.** `n_points` semilandmarks are spaced at equal arc length:
+
+- Both ends anchored: the points lie strictly between the two landmarks, which are exported once, as landmarks.
+- A free end gets a semilandmark of its own at the end of the path; with both ends free, the first and last points are the curve's ends.
+- A closed loop gets `n_points` around the loop, starting at its first clicked point.
+- With one point it sits in the middle of the path.
+
+**Computing a curve in 3D (`"euclidean"`).** The path runs through the start landmark, the clicked points in order and the end landmark. Its straight segments are cut into short steps, and each step is moved to the nearest point on the surface, so the path follows the surface between the clicks. `length` is the length of that surface path. The semilandmarks are spaced along it and moved onto the surface too, so each has an `anchor` and a `normal` like a landmark. An open curve needs at least two points (counting anchored ends), a loop at least three. If an anchored landmark isn't placed, or is missing, the curve has no semilandmarks until it is placed. On thin structures the nearest surface can lie on the other side; `"geodesic"` paths (planned) avoid this.
+
+**When the template changes.** If `n_points` changes, curves already traced are re-sampled from their `control_points` when the mesh is open. A curve whose `points` don't match the template's `n_points` counts as not done in exports.
+
+**Exports.**
+
+- Rows follow `export_order` if it lists curve ids, otherwise landmarks first, then each curve's semilandmarks in curve order, then ad hoc points.
+- Each semilandmark is a row named `<curve id>_<nn>` (`C01_01`, `C01_02`, …). In CSV it has `type = curve`, the curve id in `curve` and its number in `index`.
+- A curve that is missing or not finished is written as `n_points` missing rows (TPS: the missing value; CSV: `NA` with status `missing` or `not_done`), so every specimen has the same rows.
+
+**Unknown curves.** A curve entry whose `template_id` isn't in the template is kept unchanged when the file is saved again, like any field the app doesn't know.
 
 ## Surface semilandmarks (reserved, later)
 
@@ -317,3 +338,4 @@ three.js app (decided 2026-11-06):
 - [x] Meshes: v0.1 accepts triangle meshes only; PLY files with non-triangle faces are refused.
 - [x] Scope: the app stays 3D-only under v0.2 of the format; 2D templates and image sources are refused rather than supported.
 - [x] Planes (v0.4, decided 2026-11-08): optional template definitions built from landmarks (exact for three, best fit for more). Planes from clicked points are for exploring only and are not saved.
+- [x] Curves (v0.2) in 3D start with `"euclidean"` paths (straight segments between clicks, moved onto the surface). Semilandmark rows are named `<curve id>_<nn>`, as in the 2D app. `"geodesic"` paths and the geomorph sliders file come later.

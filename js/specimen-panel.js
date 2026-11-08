@@ -1,7 +1,7 @@
 // The Specimen tab: the current specimen's ID, notes and units, its
 // replicates, its mesh details, and removing it from the set.
 
-import { replicateOf } from './session.js';
+import { replicateOf, recordHasData } from './session.js';
 import { nextReplicate, shuffledOrder, repeatability } from './set-model.js';
 
 const $ = (id) => document.getElementById(id);
@@ -129,7 +129,7 @@ export function setupSpecimenPanel(app) {
   function openRepeatability() {
     const states = session.records
       .filter((r) => !r.isSample && r.specimen.mesh)
-      .map((r) => ({ specimen: r.specimen, template: session.template, points: r.points }));
+      .map((r) => ({ specimen: r.specimen, template: session.template, points: r.points, curves: r.curves }));
     const r = repeatability(states);
     const u = r.units;
     const fmt = (v) => (v == null ? '–' : v < 1 ? v.toFixed(3) : v.toFixed(2));
@@ -207,7 +207,7 @@ export function setupSpecimenPanel(app) {
       removing = false;
     } else if (removing) {
       el.innerHTML = `<div class="tpl-confirm" style="margin:0">
-          <p class="confirm-text">Remove ${esc(rec.specimen.id)} from the set?${rec.dirty && rec.points.length ? ' Its landmarks are not saved and will be lost.' : ''}</p>
+          <p class="confirm-text">Remove ${esc(rec.specimen.id)} from the set?${rec.dirty && recordHasData(rec) ? ' Its landmarks are not saved and will be lost.' : ''}</p>
           <div class="confirm-actions">
             <button type="button" class="btn danger small" data-act="remove-yes">Remove</button>
             <button type="button" class="btn small" data-act="remove-no">Cancel</button>

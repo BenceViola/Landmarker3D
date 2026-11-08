@@ -8,7 +8,7 @@
 //   - warning before unsaved landmarks are lost
 
 import { buildLandmarkFile, parseLandmarkFile, LandmarkFileError } from './landmark-file.js';
-import { replicateOf } from './session.js';
+import { replicateOf, recordHasData } from './session.js';
 import { toTps } from './tps.js';
 import { toCsv } from './csv.js';
 import { zipFiles } from './zip.js';
@@ -48,7 +48,7 @@ export function setupFiles(app) {
     } catch {
       /* not remembered, still used */
     }
-    for (const r of realRecords()) if (r.points.length) r.dirty = true;
+    for (const r of realRecords()) if (recordHasData(r)) r.dirty = true;
     renderStatus();
   });
   const operator = () => $('operator').value.trim();
@@ -62,14 +62,14 @@ export function setupFiles(app) {
       return;
     }
     if (kind === 'template') {
-      for (const r of session.records) if (r.points.length) r.dirty = true;
+      for (const r of session.records) if (recordHasData(r)) r.dirty = true;
     }
     if (!session.current.isSample || kind !== 'template') session.current.dirty = true;
     renderStatus();
   });
 
   const realRecords = () => session.records.filter((r) => !r.isSample);
-  const unsaved = () => realRecords().filter((r) => r.dirty && r.points.length);
+  const unsaved = () => realRecords().filter((r) => r.dirty && recordHasData(r));
 
   window.addEventListener('beforeunload', (e) => {
     if (!unsaved().length) return;
@@ -112,12 +112,12 @@ export function setupFiles(app) {
     const time = rec.savedAt ? rec.savedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     let text;
     if (!rec.specimen.mesh) text = 'Open a mesh to start.';
-    else if (rec.dirty && rec.points.length) text = rec.savedName ? `Unsaved changes since ${rec.action} ${rec.savedName}` : 'Not saved yet';
+    else if (rec.dirty && recordHasData(rec)) text = rec.savedName ? `Unsaved changes since ${rec.action} ${rec.savedName}` : 'Not saved yet';
     else if (rec.savedName) text = `${rec.action === 'saved' ? 'Saved' : 'Opened'} ${rec.savedName}${time && rec.action === 'saved' ? ` at ${time}` : ''}`;
-    else if (handedIn && !rec.dirty && rec.points.length) text = `In the hand-in ${handedIn.name}`;
+    else if (handedIn && !rec.dirty && recordHasData(rec)) text = `In the hand-in ${handedIn.name}`;
     else text = 'No changes yet';
     el.textContent = text;
-    const dirty = rec.dirty && rec.points.length > 0;
+    const dirty = rec.dirty && recordHasData(rec);
     el.classList.toggle('is-dirty', dirty);
     $('save-btn').classList.toggle('has-changes', dirty);
     $('save-btn').title = dirty ? 'Save this specimen’s landmarks (unsaved changes) · Ctrl/⌘ S' : 'Save this specimen’s landmarks · Ctrl/⌘ S';
@@ -130,6 +130,7 @@ export function setupFiles(app) {
     return buildLandmarkFile({
       template: session.template,
       points: rec.points,
+      curves: rec.curves,
       mesh: rec.specimen.mesh,
       specimenId: rec.specimen.id || 'specimen',
       notes: rec.specimen.notes || '',
@@ -147,7 +148,7 @@ export function setupFiles(app) {
     return real.length ? real : session.records.filter((r) => r.specimen.mesh);
   }
   const statesOf = (recs) =>
-    recs.map((r) => ({ specimen: { ...r.specimen }, template: session.template, points: r.points, provenance: { operator: operator() } }));
+    recs.map((r) => ({ specimen: { ...r.specimen }, template: session.template, points: r.points, curves: r.curves, provenance: { operator: operator() } }));
 
   // ---- Saving one specimen -------------------------------------------------
 
@@ -205,7 +206,7 @@ export function setupFiles(app) {
     // screen: offer to put its points on that mesh.
     const cur = session.current;
     if (
-      parsed.length === 1 && !problems.length && !cur.isSample && cur.specimen.mesh && !cur.points.length &&
+      parsed.length === 1 && !problems.length && !cur.isSample && cur.specimen.mesh && !recordHasData(cur) &&
       app.state.mesh && !session.records.some((r) => specimens.shaOf(r) === parsed[0].doc.specimen.mesh.sha256?.toLowerCase())
     ) {
       return promptMismatch(parsed[0]);
@@ -248,7 +249,7 @@ export function setupFiles(app) {
     const rep = replicateOf(doc);
 
     // The template: an empty set (or the example) takes the file's; otherwise it must match.
-    const blank = specimens.sampleOnly() || (!session.template.landmarks.length && !session.records.some((r) => r.points.length));
+    const blank = specimens.sampleOnly() || (!session.template.landmarks.length && !session.records.some((r) => recordHasData(r)));
     if (!blank) {
       const diff = templateDifference(session.template, p.template);
       if (diff) {
@@ -259,6 +260,7 @@ export function setupFiles(app) {
 
     const fields = {
       points: p.points,
+      curves: p.curves,
       base: doc,
       created: doc.provenance?.created || null,
       savedName: p.name,
@@ -273,17 +275,17 @@ export function setupFiles(app) {
 
     const sameMesh = session.records.filter((r) => !r.isSample && specimens.shaOf(r) === sha);
     const slot = sameMesh.find((r) => replicateOf(r) === rep);
-    if (slot && slot.points.length) {
+    if (slot && recordHasData(slot)) {
       problems.push(`${slot.specimen.id}${rep > 1 ? ` (replicate ${rep})` : ''} is already open, so “${p.name}” was skipped.`);
       return null;
     }
     if (blank) {
       if (specimens.sampleOnly()) {
         const rec = specimens.addSpecimen({ specimen, ...fields });
-        session.load(p.template, p.points);
+        session.load(p.template, p.points, p.curves);
         return rec;
       }
-      session.load(p.template, session.points);
+      session.load(p.template, session.points, session.current.curves);
     }
     if (slot) {
       // Its mesh is already open: fill the specimen in.
@@ -314,12 +316,12 @@ export function setupFiles(app) {
 
   function applySnapped(p) {
     const cur = session.current;
-    const diff = session.records.some((r) => r !== cur && r.points.length) ? templateDifference(session.template, p.template) : null;
+    const diff = session.records.some((r) => r !== cur && recordHasData(r)) ? templateDifference(session.template, p.template) : null;
     if (diff) {
       ui.showMessage('error', `“${p.name}” was not opened: ${diff}. All specimens in a set use the same template.`);
       return;
     }
-    session.load(p.template, p.points);
+    session.load(p.template, p.points, p.curves);
     Object.assign(cur, {
       base: p.doc,
       created: p.doc.provenance?.created || null,

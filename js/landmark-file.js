@@ -1,5 +1,6 @@
 // Reading and writing Landmark JSON files (.lmk.json). Files are written as
-// format 0.2.0, or 0.3.0 for replicates; files up to 0.3 are read.
+// format 0.2.0 (curves included), 0.3.0 for replicates, 0.4.0 with planes;
+// files up to 0.4 are read.
 //
 // Writing starts from the file that was opened, if any, so fields this app
 // doesn't know about (curves, surfaces, extensions, extra keys) survive a
@@ -15,16 +16,23 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
 export class LandmarkFileError extends Error {}
 
-// Row order for exports: template.export_order if given, then any template
-// landmarks it leaves out, in template order.
+// Landmark row order for exports: template.export_order if given, then any
+// template landmarks it leaves out, in template order.
 export function exportOrder(template) {
-  const ids = template.landmarks.map((d) => d.id);
-  const known = new Set(ids);
-  const order = Array.isArray(template.export_order)
-    ? template.export_order.filter((id) => known.has(id))
-    : [];
+  return exportItems(template).filter((x) => x.kind === 'landmark').map((x) => x.id);
+}
+
+// Landmarks and curves in export order: template.export_order if given, then
+// whatever it leaves out (landmarks first, then curves, in template order).
+export function exportItems(template) {
+  const items = [
+    ...template.landmarks.map((d) => ({ kind: 'landmark', id: d.id, def: d })),
+    ...(template.curves || []).map((c) => ({ kind: 'curve', id: c.id, def: c })),
+  ];
+  const byId = new Map(items.map((x) => [x.id, x]));
+  const order = Array.isArray(template.export_order) ? [...new Set(template.export_order)].filter((id) => byId.has(id)) : [];
   const listed = new Set(order);
-  return [...order, ...ids.filter((id) => !listed.has(id))];
+  return [...order.map((id) => byId.get(id)), ...items.filter((x) => !listed.has(x.id))];
 }
 
 // Template points in export order, then everything else (ad hoc) by id.
@@ -41,6 +49,18 @@ function cleanPoint(p) {
     out.position = null;
     delete out.anchor;
     delete out.normal;
+  }
+  return out;
+}
+
+function cleanCurve(c) {
+  const out = {};
+  for (const [k, v] of Object.entries(c)) if (!k.startsWith('_')) out[k] = clone(v);
+  if (out.status === 'missing') {
+    out.control_points = [];
+    out.points = [];
+    delete out.length;
+    delete out.sampling;
   }
   return out;
 }
@@ -74,7 +94,7 @@ function meshFields(mesh, units) {
  * file, which needs format 0.3.0 (spec: Replicates).
  */
 export function buildLandmarkFile({
-  session, template = session?.template, points = session?.points,
+  session, template = session?.template, points = session?.points, curves = session?.current?.curves || [],
   mesh, units, specimenId, notes, operator, base, created, replicate = 1,
 }) {
   const b = base ? clone(base) : {};
@@ -122,6 +142,14 @@ export function buildLandmarkFile({
     template: clone(template),
     landmarks: orderedPoints(template, points).map(cleanPoint),
   };
+  // Curves in template order, without the app's private fields (starting with _).
+  const rank = new Map((template.curves || []).map((c, i) => [c.id, i]));
+  const curveList = [...(curves || [])]
+    .sort((x, y) => (rank.get(x.template_id) ?? 1e9) - (rank.get(y.template_id) ?? 1e9))
+    .map(cleanCurve);
+  // Curves of the opened file that aren't in the template are kept as they were.
+  const extra = Array.isArray(b.curves) ? b.curves.filter((c) => !rank.has(c?.template_id ?? c?.id)) : [];
+  if (curveList.length || b.curves) doc.curves = [...curveList, ...extra];
   for (const [k, v] of Object.entries(b)) {
     if (!(k in doc) && k !== 'provenance' && k !== 'extensions') doc[k] = v;
   }
@@ -189,6 +217,8 @@ export function parseLandmarkFile(text, name) {
   if (templateError) throw new LandmarkFileError(templateError);
   const planeNote = cleanPlanes(t);
   if (planeNote) warnings.push(planeNote);
+  const curveDefNote = cleanCurveDefs(t);
+  if (curveDefNote) warnings.push(curveDefNote);
   const defIds = new Set();
   for (const d of t.landmarks) {
     if (!d || typeof d.id !== 'string' || !d.id || defIds.has(d.id)) {
@@ -230,7 +260,67 @@ export function parseLandmarkFile(text, name) {
   if (skipped) warnings.push(`${skipped} landmark entr${skipped === 1 ? 'y was' : 'ies were'} unreadable and left out.`);
   if (unlinked) warnings.push(`${unlinked} point${unlinked === 1 ? '' : 's'} referred to landmarks not in the template and became ad hoc points.`);
 
-  return { doc, template: clone(t), points, warnings, name };
+  const curves = parseCurves(doc.curves, t, warnings);
+
+  return { doc, template: clone(t), points, curves, warnings, name };
+}
+
+const isPos = (p) => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
+
+// Curve entries of a file: kept when they belong to a template curve.
+function parseCurves(list, t, warnings) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) {
+    warnings.push('Its "curves" isn’t a list, so its curves were left out.');
+    return [];
+  }
+  const ids = new Set((t.curves || []).map((c) => c.id));
+  const out = [];
+  let dropped = 0;
+  for (const c of list) {
+    const tid = c?.template_id ?? c?.id;
+    if (!c || typeof c.id !== 'string' || !ids.has(tid) || out.some((x) => x.template_id === tid)) {
+      dropped++;
+      continue;
+    }
+    const e = clone(c);
+    e.template_id = tid;
+    if (!STATUSES.has(e.status)) e.status = 'placed';
+    e.control_points = (Array.isArray(e.control_points) ? e.control_points : []).filter((p) => p && isPos(p.position));
+    e.points = (Array.isArray(e.points) ? e.points : []).filter((p) => p && isPos(p.position));
+    out.push(e);
+  }
+  if (dropped) warnings.push(`${dropped} curve${dropped === 1 ? ' is' : 's are'} not in the template (or unreadable), so ${dropped === 1 ? 'it isn’t' : 'they aren’t'} shown; ${dropped === 1 ? 'it is' : 'they are'} kept in the file when you save.`);
+  return out;
+}
+
+// Drop curve definitions that can't be used; fix ends naming unknown landmarks.
+function cleanCurveDefs(t) {
+  if (!t.curves) return null;
+  const lm = new Set(t.landmarks.map((d) => d && d.id));
+  const seen = new Set();
+  let dropped = 0;
+  let ends = 0;
+  t.curves = t.curves.filter((c) => {
+    if (!c || typeof c.id !== 'string' || !c.id || seen.has(c.id) || lm.has(c.id)) {
+      dropped++;
+      return false;
+    }
+    seen.add(c.id);
+    if (typeof c.name !== 'string' || !c.name) c.name = c.id;
+    for (const k of ['start', 'end']) {
+      if (c[k] != null && !lm.has(c[k])) {
+        delete c[k];
+        ends++;
+      }
+    }
+    return true;
+  });
+  if (!t.curves.length) delete t.curves;
+  const parts = [];
+  if (dropped) parts.push(`${dropped} curve definition${dropped === 1 ? ' was' : 's were'} unreadable and left out`);
+  if (ends) parts.push(`${ends} curve end${ends === 1 ? '' : 's'} named landmarks not in the template and became free`);
+  return parts.length ? parts.join('; ') + '.' : null;
 }
 
 // Drop plane definitions that can't be used; keep the rest. Returns a note, or null.

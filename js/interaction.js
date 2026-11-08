@@ -3,17 +3,26 @@
 //   click on the surface   place the active landmark there, then move on
 //   click on a marker      select that landmark
 //   drag a marker          slide it over the surface
+//   (a curve's clicked points, the small diamonds, work like markers)
 //   drag anywhere else     rotate / pan / zoom (TrackballControls)
 //
 // A press only counts as a click if the pointer barely moved, so rotating
 // the view never drops a landmark by accident.
+
+import { parseCpKey } from './session.js';
 
 const CLICK_SLOP = 5; // px
 const CLICK_TIME = 600; // ms
 
 // `intercept(hit)` may take a click on the 3D view for another tool (e.g.
 // clicking the points of a plane); return true to stop it placing a landmark.
-export function attachInteraction({ viewer, picker, markers, session, intercept = null }) {
+export function attachInteraction({ viewer, picker, markers, curves = null, session, intercept = null }) {
+  const markerAt = (x, y) => markers.hitTest(x, y) || curves?.hitTest(x, y) || null;
+  // A curve point's key ("C01#2") selects its curve.
+  const select = (key) => {
+    const id = parseCpKey(key)?.id ?? key;
+    if (session.activeId !== id) session.setActive(id);
+  };
   const canvas = viewer.renderer.domElement;
   const stage = viewer.container;
   let press = null;
@@ -30,7 +39,7 @@ export function attachInteraction({ viewer, picker, markers, session, intercept 
         return;
       }
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      const markerId = markers.hitTest(e.clientX, e.clientY);
+      const markerId = markerAt(e.clientX, e.clientY);
       press = {
         pointerId: e.pointerId,
         x: e.clientX,
@@ -56,7 +65,7 @@ export function attachInteraction({ viewer, picker, markers, session, intercept 
         if (!press.dragging && dist > 3) {
           press.dragging = true;
           session.beginMove();
-          if (session.activeId !== press.markerId) session.setActive(press.markerId);
+          select(press.markerId);
           canvas.style.cursor = 'grabbing';
         }
         if (press.dragging) {
@@ -81,7 +90,7 @@ export function attachInteraction({ viewer, picker, markers, session, intercept 
       viewer.controls.enabled = true;
       canvas.style.cursor = '';
       if (p.dragging) session.endMove();
-      else if (!cancelled) session.setActive(p.markerId);
+      else if (!cancelled) select(p.markerId);
       return;
     }
     if (cancelled || p.moved || performance.now() - p.time > CLICK_TIME) return;
@@ -100,7 +109,7 @@ export function attachInteraction({ viewer, picker, markers, session, intercept 
       const { x: hx, y: hy } = hoverQueued;
       hoverQueued = null;
       if (press) return;
-      if (markers.hitTest(hx, hy)) canvas.style.cursor = 'grab';
+      if (markerAt(hx, hy)) canvas.style.cursor = 'grab';
       else if (session.activeId && picker.pickAt(hx, hy)) canvas.style.cursor = 'crosshair';
       else canvas.style.cursor = '';
     });

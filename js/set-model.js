@@ -5,8 +5,9 @@
 //   { specimen: { id, replicate?, mesh: {...} }, template, points, provenance }
 // Session records and opened files are both turned into this shape.
 
-import { exportOrder } from './landmark-file.js';
+import { exportItems } from './landmark-file.js';
 import { replicateOf } from './session.js';
+import { curveDone } from './curves.js';
 
 export { replicateOf };
 
@@ -63,18 +64,22 @@ export function templateDifference(a, b) {
     JSON.stringify({
       ids: (t.landmarks || []).map((d) => d.id),
       curves: (t.curves || []).map((c) => [c.id, c.n_points ?? 10]),
-      order: exportOrder(t),
+      order: exportItems(t).map((x) => x.id),
     });
   if ((a.id || '') !== (b.id || '')) return `it uses the template “${b.id}”, not “${a.id}”`;
-  if (sig(a) !== sig(b)) return `its version of the template “${b.id}” has different landmarks or a different order`;
+  if (sig(a) !== sig(b)) return `its version of the template “${b.id}” has different landmarks or curves, or a different order`;
   return null;
 }
 
-// Template landmarks done (placed, estimated or missing) out of all.
+// Template landmarks and curves done (placed, estimated or missing) out of all.
 export function progress(st) {
   const ids = new Set(st.points.filter((p) => p.template_id !== null).map((p) => p.template_id));
-  const total = st.template.landmarks.length;
-  return { done: st.template.landmarks.filter((d) => ids.has(d.id)).length, total };
+  const curves = st.template.curves || [];
+  const total = st.template.landmarks.length + curves.length;
+  const done =
+    st.template.landmarks.filter((d) => ids.has(d.id)).length +
+    curves.filter((c) => curveDone((st.curves || []).find((e) => (e.template_id ?? e.id) === c.id))).length;
+  return { done, total };
 }
 
 // The template's landmark ids in random order, for a replicate placed blind.

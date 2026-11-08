@@ -6,7 +6,7 @@
 // student opened, or isn't available yet (a specimen opened from a landmark
 // file or hand-in, waiting for its mesh).
 
-import { newRecord, replicateOf } from './session.js';
+import { newRecord, replicateOf, recordHasData } from './session.js';
 import { MeshStore } from './mesh-store.js';
 import { loadMeshFile, loadMeshBuffer, MeshLoadError } from './mesh-loader.js';
 import { makeSampleStl } from './sample.js';
@@ -26,8 +26,8 @@ export function setupSpecimens(app) {
   let batch = false; // opening files: the viewer is busy with thumbnails
 
   const shaOf = (rec) => rec?.specimen.mesh?.sha256 || null;
-  const hiddenInThumbnails = () => [markers.group, app.planeView?.group, app.planeView?.pickGroup].filter(Boolean);
-  const sampleOnly = () => session.records.every((r) => r.isSample || (!r.specimen.mesh && !r.points.length));
+  const hiddenInThumbnails = () => [markers.group, app.curveView?.group, app.planeView?.group, app.planeView?.pickGroup].filter(Boolean);
+  const sampleOnly = () => session.records.every((r) => r.isSample || (!r.specimen.mesh && !recordHasData(r)));
 
   // Is this specimen's mesh in memory, or can it be read again?
   const meshState = (rec) => {
@@ -91,6 +91,7 @@ export function setupSpecimens(app) {
       display(entry, rec.view);
       picker.setGeometry(entry.mesh.geometry);
       markers.setMeshSize(viewer.diagonal);
+      app.curveView?.setMeshSize(viewer.diagonal);
       app.state.mesh = entry.mesh;
     } else {
       viewer.clear();
@@ -231,6 +232,16 @@ export function setupSpecimens(app) {
         Object.assign(p, s.fields);
         count++;
         max = Math.max(max, s.distance);
+      }
+      // Curve control points too; the semilandmarks are recomputed from them.
+      for (const c of r.curves || []) {
+        for (const cp of c.control_points || []) {
+          const s = picker.snap(cp.position);
+          if (!s) continue;
+          cp.position = s.fields.position;
+          if (s.fields.anchor) cp.anchor = s.fields.anchor;
+          max = Math.max(max, s.distance);
+        }
       }
     }
     return { count, max };

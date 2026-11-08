@@ -7,7 +7,7 @@
 // Coordinates are as stored: mesh space, in the mesh's units. Points not
 // placed have x, y, z = NA; `status` says why (missing or not_done).
 
-import { exportOrder } from './landmark-file.js';
+import { exportRows } from './export-rows.js';
 import { replicateOf, operatorOf } from './set-model.js';
 
 export const CSV_HEADER =
@@ -19,39 +19,7 @@ const quote = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-// The rows of one specimen: template landmarks in export order, then its
-// ad hoc points by id.
-export function exportRows(st) {
-  const byTemplate = new Map();
-  for (const p of st.points) if (p.template_id !== null) byTemplate.set(p.template_id, p);
-  const rows = [];
-  for (const id of exportOrder(st.template)) {
-    const def = st.template.landmarks.find((d) => d.id === id);
-    const p = byTemplate.get(id);
-    rows.push({
-      point: id,
-      template_id: id,
-      label: def.name,
-      type: 'landmark',
-      pos: p && p.status !== 'missing' && Array.isArray(p.position) ? p.position : null,
-      status: p ? p.status : 'not_done',
-    });
-  }
-  const adhoc = st.points
-    .filter((p) => p.template_id === null)
-    .sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
-  for (const p of adhoc) {
-    rows.push({
-      point: p.id,
-      template_id: '',
-      label: p.label || '',
-      type: 'adhoc',
-      pos: p.status !== 'missing' && Array.isArray(p.position) ? p.position : null,
-      status: p.status,
-    });
-  }
-  return rows;
-}
+export { exportRows };
 
 export function toCsv(states, { ids = states.map((st) => st.specimen.id) } = {}) {
   const lines = [CSV_HEADER];
@@ -69,8 +37,8 @@ export function toCsv(states, { ids = states.map((st) => st.specimen.id) } = {})
           r.template_id,
           r.label,
           r.type,
-          '',
-          '',
+          r.curve,
+          r.index,
           ...(r.pos ? r.pos.map(fmt) : ['NA', 'NA', 'NA']),
           units,
           r.status,

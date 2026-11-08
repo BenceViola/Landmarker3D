@@ -29,6 +29,9 @@ Browser app for placing 3D landmarks on STL/PLY meshes, for teaching and researc
 | `js/planes.js` | (advanced) Plane fitting (exact through 3, least squares for more), signed distances, mesh cut lines |
 | `js/plane-view.js` | (advanced) Drawing planes and cut lines in the 3D view |
 | `js/planes-panel.js` | (advanced) Planes tab: template planes, planes from 3 clicks (not saved), cut-away, distance tables |
+| `js/curves.js` | (advanced) Curve maths: path through the clicks moved onto the surface, equal arc length resampling, states |
+| `js/curve-view.js` | (advanced) Computes the current specimen's curves on the mesh on screen and draws them; clicked points can be dragged |
+| `js/export-rows.js` | Rows of one specimen for TPS and CSV: landmarks and curve semilandmarks in export order, then ad hoc points |
 | `js/picking.js` | BVH raycasting, anchors (face + barycentric), snapping, occlusion |
 | `js/markers.js` | Landmark spheres and labels; labels hide behind the surface |
 | `js/interaction.js` | Click to place, drag markers, click vs. rotate detection |
@@ -77,7 +80,7 @@ Short, plain sentences from the student's side of the screen. Errors say what we
 ## Not done yet
 
 - A gallery comparing one landmark across specimens (the 2D app's Compare view); in 3D it needs its own design because of the three-mesh limit.
-- Curves with equidistant semilandmarks (spec section "Curves", v0.2), and the geomorph curve-sliding file.
+- Curves: on `advanced`, euclidean paths are done (template curves, tracing, dragging, saving, TPS/CSV rows `C01_01`…). Still to do: geodesic paths, the geomorph curve-sliding file, repeatability per curve, curves in the Planes tab.
 - Saving and opening templates as separate `.template.json` files; opening landmark files that reference one (currently refused).
 - A JSON Schema file for the format.
 - Deferred: Slicer `.mrk.json` export.
