@@ -36,6 +36,8 @@ describe('resampling', () => {
   });
   test('a single point goes in the middle', () => {
     assert.deepEqual(resample([[0, 0, 0], [4, 0, 0]], 1, 0, 0, false), [[2, 0, 0]]);
+    // also with one or both ends anchored (spec: with one point it sits in the middle of the path)
+    for (const [a, b] of [[1, 0], [0, 1], [1, 1]]) assert.deepEqual(resample([[0, 0, 0], [4, 0, 0]], 1, a, b, false), [[2, 0, 0]], `a=${a} b=${b}`);
   });
 });
 

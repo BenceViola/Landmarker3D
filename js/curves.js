@@ -87,7 +87,8 @@ export function resample(D, n, a, b, closed) {
   if (closed) at = (k) => (k * L) / n;
   else {
     const den = n - 1 + a + b;
-    at = den > 0 ? (k) => ((k + a) * L) / den : () => L / 2;
+    // spec: with one point it sits in the middle of the path, whichever ends are anchored
+    at = n === 1 ? () => L / 2 : (k) => ((k + a) * L) / den;
   }
   const out = [];
   let j = 1;
