@@ -10,22 +10,36 @@
 // dots, and the clicked points as small diamonds that can be dragged.
 // Curves of specimens whose mesh isn't on screen are left as they are; they
 // are recomputed when the specimen is shown.
+//
+// "Geodesic" curves need to know which triangles share corners
+// (geodesic.js). That table is built once for the mesh on screen, the first
+// time a geodesic curve needs it (about half a second per million
+// triangles), and the path between each pair of points is cached, so
+// dragging one point only recomputes the two stretches next to it.
 
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
-import { computeCurve, samplingOf } from './curves.js';
+import { computeCurve, samplingOf, pathOf as pathKind } from './curves.js';
+import { buildTopology, geodesicSegment } from './geodesic.js';
 import { cpKey } from './session.js';
 
 const COLOR = { line: 0x0e9fc7, active: 0xe0337a, estimated: 0xd98a00, cp: 0xffffff };
 
 export class CurveView {
-  constructor(viewer, picker, session) {
+  // `ui.setBusy(text|null)` shows the busy overlay; `onReady()` is called
+  // when the mesh has been prepared for geodesic curves.
+  constructor(viewer, picker, session, { ui = null, onReady = () => {} } = {}) {
     this.viewer = viewer;
     this.picker = picker;
     this.session = session;
+    this.ui = ui;
+    this.onReady = onReady;
+    this.topo = null; // { uuid, topo } for the mesh on screen
+    this.preparing = null; // uuid being prepared
+    this.routes = new Map(); // stretch between two points -> { path, ok }
     this.group = new THREE.Group();
     viewer.scene.add(this.group);
     this.sphere = new THREE.SphereGeometry(1, 12, 8);
@@ -75,16 +89,69 @@ export class CurveView {
     for (const def of s.curveDefs) {
       const entry = s.curve(def.id);
       if (!entry) continue;
+      const geodesic = pathKind(def) === 'geodesic';
+      const topo = geodesic ? this._topology(geo) : null;
+      if (geodesic && !topo) continue; // computed once the mesh is prepared
       const pointOf = (id) => s.point(id);
       const ends = [def.start, def.end].map((id) => (id ? pointOf(id) : null)).map((p) => (p && p.status !== 'missing' ? p.position : null));
       const sig = JSON.stringify([geo.uuid, def, entry.status, entry.control_points.map((c) => c.position), ends]);
       const key = `${rec.uid}|${def.id}`;
       const hit = this.cache.get(key);
       if (hit && hit.sig === sig) continue;
-      const r = computeCurve(def, entry, pointOf, project);
-      this.cache.set(key, { sig, path: r.path, error: r.error });
-      s.setCurveResult(rec, def.id, { points: r.points, length: r.length, sampling: samplingOf(def) });
+      const route = topo ? (P, fp, Q, fq) => this._route(topo, P, fp, Q, fq, project) : null;
+      const r = computeCurve(def, entry, pointOf, project, { route });
+      this.cache.set(key, { sig, path: r.path, error: r.error, warning: r.warning });
+      s.setCurveResult(rec, def.id, { points: r.points, length: r.length, sampling: samplingOf(def, r.used) });
     }
+  }
+
+  // The corner table of the mesh on screen, or null while it is prepared.
+  _topology(geo) {
+    if (this.topo?.uuid === geo.uuid) return this.topo.topo;
+    if (this.preparing === geo.uuid) return null;
+    this.preparing = geo.uuid;
+    this.topo = null; // the previous mesh's table can go
+    this.routes.clear();
+    const faces = (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
+    if (faces > 200000) this.ui?.setBusy(`Preparing ${faces.toLocaleString('en-US')} triangles for curves along the surface…`);
+    // Let the busy message show before the work starts.
+    setTimeout(() => {
+      try {
+        if (this.picker.mesh?.geometry !== geo) return; // the mesh changed meanwhile
+        const topo = buildTopology(geo.attributes.position.array, geo.index ? geo.index.array : null);
+        this.topo = { uuid: geo.uuid, topo };
+      } finally {
+        this.preparing = null;
+        this.ui?.setBusy(null);
+      }
+      this.onReady();
+    }, 30);
+    return null;
+  }
+
+  _route(topo, P, fp, Q, fq, project) {
+    const faceOf = (p, f) => (Number.isInteger(f) ? f : this.picker.snap(p)?.fields.anchor?.face ?? null);
+    const a = faceOf(P, fp);
+    const b = faceOf(Q, fq);
+    if (a === null || b === null) return { path: [P, Q], ok: false };
+    const key = `${P.join()}|${a}|${Q.join()}|${b}`;
+    let r = this.routes.get(key);
+    if (!r) {
+      r = geodesicSegment(topo, P, a, Q, b, project);
+      if (this.routes.size > 4000) this.routes.clear();
+      this.routes.set(key, r);
+    }
+    return r;
+  }
+
+  // Is the mesh being prepared for geodesic curves?
+  get busy() {
+    return this.preparing !== null;
+  }
+
+  // A note about how a curve was computed, or null: { code: 'apart' }.
+  warningOf(id) {
+    return this.cache.get(`${this.session.current.uid}|${id}`)?.warning || null;
   }
 
   // Why a curve of the current specimen has no semilandmarks yet, or null.

@@ -26,7 +26,7 @@ function recompute(s) {
     const entry = s.curve(def.id);
     if (!entry) continue;
     const r = computeCurve(def, entry, (id) => s.point(id), flat);
-    s.setCurveResult(s.current, def.id, { points: r.points, length: r.length, sampling: samplingOf(def) });
+    s.setCurveResult(s.current, def.id, { points: r.points, length: r.length, sampling: samplingOf(def, r.used) });
   }
 }
 
@@ -45,7 +45,7 @@ describe('curves in the template', () => {
   test('a new curve gets the next free C id and the defaults', () => {
     const { s, id } = withCurve();
     assert.equal(id, 'C01');
-    assert.deepEqual(s.curveDef('C01'), { id: 'C01', name: 'Brow ridge', n_points: 3, path: 'euclidean', spacing: 'equal_arc_length', start: 'LM01', end: 'LM02' });
+    assert.deepEqual(s.curveDef('C01'), { id: 'C01', name: 'Brow ridge', n_points: 3, path: 'geodesic', spacing: 'equal_arc_length', start: 'LM01', end: 'LM02' });
     assert.equal(s.addCurveDef('Second'), 'C02');
     assert.equal(s.addCurveDef('  '), null);
   });

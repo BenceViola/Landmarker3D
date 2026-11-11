@@ -97,7 +97,12 @@ The TPS export writes `points` as ordinary rows; the curve definition file for g
 - A closed loop gets `n_points` around the loop, starting at its first clicked point.
 - With one point it sits in the middle of the path.
 
-**Computing a curve in 3D (`"euclidean"`).** The path runs through the start landmark, the clicked points in order and the end landmark. Its straight segments are cut into short steps, and each step is moved to the nearest point on the surface, so the path follows the surface between the clicks. `length` is the length of that surface path. The semilandmarks are spaced along it and moved onto the surface too, so each has an `anchor` and a `normal` like a landmark. An open curve needs at least two points (counting anchored ends), a loop at least three. If an anchored landmark isn't placed, or is missing, the curve has no semilandmarks until it is placed. On thin structures the nearest surface can lie on the other side; `"geodesic"` paths (planned) avoid this.
+**Computing a curve in 3D.** The path runs through the start landmark, the clicked points in order and the end landmark. Between each pair of these points:
+
+- `"geodesic"`: the shortest route across the surface. Apps may approximate it, for example by the shortest route along triangle edges, then pulled tight on the surface. Corners repeated in the file (as in STL) count as one point, so the route crosses seams. If two points are on separate pieces of the mesh, that stretch is a straight line and the app warns. New curves use `"geodesic"`.
+- `"euclidean"`: straight segments, cut into short steps, each moved to the nearest point on the surface. Where the straight line passes closer to another surface (across thin bone or a deep groove), the path can jump to it.
+
+`length` is the length of the computed path. The semilandmarks are spaced along it and moved onto the surface too, so each has an `anchor` and a `normal` like a landmark. An open curve needs at least two points (counting anchored ends), a loop at least three. If an anchored landmark isn't placed, or is missing, the curve has no semilandmarks until it is placed. `sampling.path` records which kind of path was actually computed.
 
 **When the template changes.** If `n_points` changes, curves already traced are re-sampled from their `control_points` when the mesh is open. A curve whose `points` don't match the template's `n_points` counts as not done in exports.
 
@@ -339,3 +344,4 @@ three.js app (decided 2026-11-06):
 - [x] Scope: the app stays 3D-only under v0.2 of the format; 2D templates and image sources are refused rather than supported.
 - [x] Planes (v0.4, decided 2026-11-08): optional template definitions built from landmarks (exact for three, best fit for more). Planes from clicked points are for exploring only and are not saved.
 - [x] Curves (v0.2) in 3D start with `"euclidean"` paths (straight segments between clicks, moved onto the surface). Semilandmark rows are named `<curve id>_<nn>`, as in the 2D app. `"geodesic"` paths and the geomorph sliders file come later.
+- [x] `"geodesic"` paths (shortest route across the surface) are the default for new 3D curves; `"euclidean"` stays available per curve (decided 2026-11-10).

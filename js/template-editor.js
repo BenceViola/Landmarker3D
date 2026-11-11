@@ -9,7 +9,7 @@
 // requires ("never changed once data exists").
 
 import { esc } from './landmark-panel.js';
-import { nPointsOf, MAX_CURVE_POINTS } from './curves.js';
+import { nPointsOf, MAX_CURVE_POINTS, pathOf } from './curves.js';
 
 export class TemplateEditor {
   constructor(root, session) {
@@ -193,7 +193,8 @@ export class TemplateEditor {
     const options = (sel) =>
       `<option value="">Free (no landmark)</option>` +
       lmIds.map((id) => `<option value="${esc(id)}"${sel === id ? ' selected' : ''}>${esc(id)} · ${esc(s.def(id).name)}</option>`).join('');
-    const summary = `${n} points · ${c.closed ? 'closed loop' : `${c.start || 'free'} → ${c.end || 'free'}`}${c.description ? ` · ${esc(c.description)}` : ''}`;
+    const geodesic = pathOf(c) === 'geodesic';
+    const summary = `${n} points · ${c.closed ? 'closed loop' : `${c.start || 'free'} → ${c.end || 'free'}`} · ${geodesic ? 'along the surface' : 'straight lines'}${c.description ? ` · ${esc(c.description)}` : ''}`;
     const confirm = this.confirming === `curve:${c.id}`
       ? `<div class="tpl-confirm">
            <p class="confirm-text">Delete the curve ${esc(c.id)} ${esc(c.name)}${hasData ? ' and what was traced for it on every specimen' : ''}?</p>
@@ -226,6 +227,15 @@ export class TemplateEditor {
           <label class="field-stack">Semilandmarks
             <input id="tpl-cn-${key}" type="number" min="1" max="${MAX_CURVE_POINTS}" step="1" value="${n}" data-cedit="n_points">
             <span class="hint">${c.closed ? 'Spread evenly around the loop.' : 'Not counting the end landmarks, which are exported once, as landmarks.'}</span>
+          </label>
+          <label class="field-stack">Path between the clicks
+            <select id="tpl-cpath-${key}" data-cedit="path">
+              <option value="geodesic"${geodesic ? ' selected' : ''}>Along the surface (shortest route)</option>
+              <option value="euclidean"${geodesic ? '' : ' selected'}>Straight lines, pressed onto the surface</option>
+            </select>
+            <span class="hint">${geodesic
+              ? 'Follows the surface between your clicks, even across grooves and thin bone.'
+              : 'Quicker, but across thin bone or a deep groove it can jump to the other side. Click more points there.'}</span>
           </label>
           <label class="toggle">Closed loop (e.g. an orbit rim)
             <input type="checkbox" id="tpl-cclosed-${key}" data-cedit="closed"${c.closed ? ' checked' : ''}><span class="switch"></span>

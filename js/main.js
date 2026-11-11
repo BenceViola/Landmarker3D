@@ -38,7 +38,10 @@ try {
   app.picker = new Picker(app.viewer);
   app.markers = new Markers(app.viewer, app.picker, session);
   app.planeView = new PlaneView(app.viewer);
-  app.curveView = new CurveView(app.viewer, app.picker, session);
+  app.curveView = new CurveView(app.viewer, app.picker, session, {
+    ui: app.ui,
+    onReady: () => app.renderAll(), // the mesh is ready for curves along the surface
+  });
   attachInteraction({
     viewer: app.viewer, picker: app.picker, markers: app.markers, curves: app.curveView, session,
     intercept: (hit) => planes?.intercept(hit),
@@ -62,7 +65,10 @@ new MutationObserver(applyTheme).observe(document.documentElement, { attributes:
 
 const specimens = webgl ? setupSpecimens(app) : null;
 app.specimens = specimens;
-const landmarkPanel = new LandmarkPanel($('tab-landmarks'), session, { curveError: (id) => curveView?.errorOf(id) });
+const landmarkPanel = new LandmarkPanel($('tab-landmarks'), session, {
+  curveError: (id) => curveView?.errorOf(id),
+  curveWarning: (id) => curveView?.warningOf(id),
+});
 const templateEditor = new TemplateEditor($('template-editor'), session);
 const strip = specimens ? setupStrip($('strip'), { session, specimens, openMeshPicker: app.openMeshPicker }) : null;
 const specimenPanel = specimens ? setupSpecimenPanel(app) : null;

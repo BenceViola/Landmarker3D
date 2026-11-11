@@ -15,10 +15,12 @@ export const esc = (s) =>
 const coord = (p) => p.position.map((n) => n.toFixed(2)).join(', ');
 
 export class LandmarkPanel {
-  // `curveError(id)` says why a curve has no semilandmarks yet (curve-view.js).
-  constructor(root, session, { curveError = () => null } = {}) {
+  // From curve-view.js: `curveError(id)` says why a curve has no semilandmarks
+  // yet, `curveWarning(id)` notes how it was computed.
+  constructor(root, session, { curveError = () => null, curveWarning = () => null } = {}) {
     this.session = session;
     this.curveError = curveError;
+    this.curveWarning = curveWarning;
     this.progressEl = root.querySelector('#lm-progress');
     this.activeEl = root.querySelector('#lm-active');
     this.listEl = root.querySelector('#lm-list');
@@ -173,6 +175,9 @@ export class LandmarkPanel {
         </div>
         <p class="active-hint">${esc(ends)} ${hint}</p>
         ${problem ? `<p class="active-problem" role="status">${esc(problem)}</p>` : ''}
+        ${!problem && got && this.curveWarning(id)?.code === 'apart'
+          ? `<p class="active-problem" role="status">Some of your points are on separate pieces of the mesh, so the curve can’t follow the surface between them. That stretch is a straight line.</p>`
+          : ''}
         <div class="active-actions">
           ${clicks ? `<button type="button" class="btn small" data-act="undo-click" title="Shortcut: Backspace">Remove last point</button>` : ''}
           ${state !== 'missing' ? `<button type="button" class="btn small" data-act="missing" title="Shortcut: M">Missing</button>` : ''}

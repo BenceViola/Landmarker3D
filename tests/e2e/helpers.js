@@ -159,7 +159,18 @@ export async function makeFiles() {
     quad: join(dir, 'quad.ply'),
     lmk2d: join(dir, 'photo.lmk.json'),
     notJson: join(dir, 'broken.lmk.json'),
+    tube: join(dir, 'TUBE_001.stl'),
   };
+  // A thin-walled tube around the y axis: outer wall radius 20, inner wall
+  // 19, height -15..15, closed by flat rings at both ends (for curves along
+  // the surface, which must not jump to the inner wall).
+  const profile = [];
+  for (let k = 0; k <= 30; k++) profile.push(new THREE.Vector2(20, -15 + k));
+  profile.push(new THREE.Vector2(19.5, 15));
+  for (let k = 30; k >= 0; k--) profile.push(new THREE.Vector2(19, -15 + k));
+  profile.push(new THREE.Vector2(19.5, -15), new THREE.Vector2(20, -15));
+  const tube = new THREE.LatheGeometry(profile.reverse(), 160).toNonIndexed();
+  await writeFile(files.tube, Buffer.from(binaryStl(tube)));
   await writeFile(files.sphere, Buffer.from(binaryStl(sphere)));
   await writeFile(files.sphereShifted, Buffer.from(binaryStl(shifted)));
   await writeFile(files.quad, Buffer.from(asciiPly(SQUARE_VERTS, [[0, 1, 2, 3]])));

@@ -68,7 +68,7 @@ describe('defining a curve', () => {
     const page = await start();
     await addCurve(page);
     const def = await S(page, () => window.__lmk.session.curveDef('C01'));
-    assert.deepEqual(def, { id: 'C01', name: 'Brow ridge', n_points: 6, path: 'euclidean', spacing: 'equal_arc_length', start: 'LM01', end: 'LM02' });
+    assert.deepEqual(def, { id: 'C01', name: 'Brow ridge', n_points: 6, path: 'geodesic', spacing: 'equal_arc_length', start: 'LM01', end: 'LM02' });
     assert.match(await page.locator('#lm-list').innerText(), /Curves\s+C01\s+Brow ridge\s+To do/i);
     // Wrong input is refused with a reason.
     await selectTab(page, 'Template');
@@ -89,7 +89,7 @@ describe('tracing a curve', () => {
     assert.equal(curve.control_points.length, 2);
     assert.equal(curve.points.length, 6);
     assert.ok(curve.length > 0);
-    assert.deepEqual(curve.sampling, { path: 'euclidean', spacing: 'equal_arc_length', n_points: 6 });
+    assert.deepEqual(curve.sampling, { path: 'geodesic', spacing: 'equal_arc_length', n_points: 6 });
     assert.ok(curve.points.every((p) => p.anchor && p.normal), 'semilandmarks are on the surface');
     assert.match(await page.locator('#curve-summary').innerText(), /2 clicks · 6 of 6 points · [\d.]+ mm long/);
     assert.match(await page.locator('#stage-hint').innerText(), /Click along C01/);
@@ -168,6 +168,51 @@ describe('tracing a curve', () => {
     await page.keyboard.press('m');
     assert.equal(await S(page, () => window.__lmk.session.stateOf('C01')), 'missing');
     assert.match(await page.locator('#lm-list').innerText(), /C01\s+Brow ridge\s+Missing/);
+  });
+});
+
+describe('along the surface or straight lines', () => {
+  // Two points on the outer wall of the thin tube, 120° apart, as clicks.
+  // The tube's mesh has a seam at 0° (corners repeated a hair apart).
+  async function traceOnTube(page, path) {
+    await openMeshes(page, [files.tube]);
+    await page.evaluate((path) => {
+      const { session: s, picker } = window.__lmk;
+      const id = s.addCurveDef('Around the tube');
+      s.updateCurveDef(id, { n_points: 9, path });
+      s.setActive(id);
+      for (const deg of [-60, 60]) { // across the lathe's seam at 0°
+        const t = (deg * Math.PI) / 180;
+        s.place(id, picker.snap([20 * Math.sin(t), 2, 20 * Math.cos(t)]).fields);
+      }
+    }, path);
+    await page.waitForFunction(() => window.__lmk.session.curve('C01')?.points?.length === 9);
+    return curveOf(page);
+  }
+  const radius = (p) => Math.hypot(p.position[0], p.position[2]);
+
+  test('along the surface, the curve stays on the outer wall of a thin tube', async () => {
+    const page = await start();
+    const curve = await traceOnTube(page, 'geodesic');
+    assert.equal(curve.sampling.path, 'geodesic');
+    for (const p of curve.points) assert.ok(Math.abs(radius(p) - 20) < 0.05, `radius ${radius(p).toFixed(3)}`);
+    const arc = 20 * ((120 * Math.PI) / 180);
+    assert.ok(Math.abs(curve.length - arc) / arc < 0.01, `length ${curve.length} vs ${arc.toFixed(3)}`);
+  });
+
+  test('with straight lines, the same clicks jump to the inner wall; the Template tab switches between the two', async () => {
+    const page = await start();
+    const straight = await traceOnTube(page, 'euclidean');
+    assert.equal(straight.sampling.path, 'euclidean');
+    assert.ok(straight.points.some((p) => Math.abs(radius(p) - 19) < 0.05), 'some points on the inner wall');
+
+    await selectTab(page, 'Template');
+    await page.locator('[data-crow="C01"] details').evaluate((d) => (d.open = true));
+    await page.locator('[data-crow="C01"] [data-cedit="path"]').selectOption('geodesic');
+    await page.waitForFunction(() => window.__lmk.session.curve('C01')?.sampling?.path === 'geodesic');
+    const curve = await curveOf(page);
+    for (const p of curve.points) assert.ok(Math.abs(radius(p) - 20) < 0.05);
+    assert.match(await page.locator('[data-crow="C01"] summary').innerText(), /along the surface/);
   });
 });
 

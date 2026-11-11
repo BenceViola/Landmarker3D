@@ -2,12 +2,17 @@
 // three.js: the surface is reached through a `project` function, so this can
 // be tested on its own.
 //
-// "euclidean" path (the only one so far): straight segments between the
-// clicked points, with the ends on their landmarks when the template says so.
-// The segments are cut into many short steps and each step is moved to the
-// nearest point on the surface, so the path follows the surface between the
-// clicks. The semilandmarks are then spaced equally along that path and put
-// on the surface too (with anchor and normal, like landmarks).
+// Two kinds of path between the clicked points (and the end landmarks):
+//
+//   "geodesic"   the shortest route across the surface (geodesic.js). The
+//                default for new curves.
+//   "euclidean"  straight segments, cut into many short steps, each moved
+//                to the nearest point on the surface. Fast, but where the
+//                straight line passes closer to another surface (across a
+//                thin bone, a deep groove) the path can jump to it.
+//
+// The semilandmarks are then spaced equally along the path and put on the
+// surface too (with anchor and normal, like landmarks).
 //
 // `n_points` counts the semilandmarks between anchored ends: a curve from
 // LM01 to LM02 with n_points 5 has 5 points strictly between the two
@@ -19,40 +24,48 @@ const lerp = (a, b, u) => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a
 
 export const DEFAULT_POINTS = 10;
 export const MAX_CURVE_POINTS = 500;
+export const PATHS = ['geodesic', 'euclidean'];
+export const pathOf = (def) => (def?.path === 'geodesic' ? 'geodesic' : 'euclidean');
 export const nPointsOf = (def) => (Number.isInteger(def?.n_points) && def.n_points > 0 ? def.n_points : DEFAULT_POINTS);
 
 /**
  * The points the path goes through, in order: the start landmark (if
  * anchored), the clicked points, the end landmark. `pointOf(id)` gives a
- * landmark entry. Returns { ctrl, a, b, error } where a/b are 1 when the
+ * landmark entry. Returns { ctrl, faces, a, b, error }: `faces` gives the
+ * triangle each point is on (from its anchor, or null); a/b are 1 when the
  * start/end is anchored on a landmark.
  */
 export function curveInputs(def, entry, pointOf) {
-  const ctrl = (entry?.control_points || []).map((c) => c.position).filter(Array.isArray);
+  const cps = (entry?.control_points || []).filter((c) => Array.isArray(c.position));
+  const ctrl = cps.map((c) => c.position);
+  const faces = cps.map((c) => (Number.isInteger(c.anchor?.face) ? c.anchor.face : null));
   let a = 0;
   let b = 0;
   let error = null;
   if (!def.closed) {
     const placed = (id) => {
       const p = pointOf(id);
-      return p && p.status !== 'missing' && Array.isArray(p.position) ? p.position : null;
+      return p && p.status !== 'missing' && Array.isArray(p.position) ? p : null;
     };
+    const faceOf = (p) => (Number.isInteger(p.anchor?.face) ? p.anchor.face : null);
     if (def.start) {
       const p = placed(def.start);
       if (p) {
-        ctrl.unshift(p);
+        ctrl.unshift(p.position);
+        faces.unshift(faceOf(p));
         a = 1;
       } else error = { code: 'start', id: def.start };
     }
     if (def.end) {
       const p = placed(def.end);
       if (p) {
-        ctrl.push(p);
+        ctrl.push(p.position);
+        faces.push(faceOf(p));
         b = 1;
       } else error ??= { code: 'end', id: def.end };
     }
   }
-  return { ctrl, a, b, error };
+  return { ctrl, faces, a, b, error };
 }
 
 // Straight segments through P cut into steps no longer than `step`.
@@ -107,22 +120,44 @@ export function resample(D, n, a, b, closed) {
  *   entry    specimen curve entry ({ control_points, status, ... })
  *   pointOf  id -> landmark entry of the same specimen
  *   project  [x,y,z] -> { position, anchor?, normal? } on the surface, or null
- * Returns { path, points, length, error }: `path` is the surface path
- * (positions, for drawing), `points` the semilandmarks as the file stores
- * them. `error` is null, or { code: 'start' | 'end', id } (place that
- * landmark first) or { code: 'few' } (not enough points yet).
+ *   route    (for "geodesic") (P, faceP, Q, faceQ) -> { path, ok }: the
+ *            surface path between two points; without it the curve is
+ *            computed as "euclidean"
+ * Returns { path, points, length, error, warning, used }: `path` is the
+ * surface path (positions, for drawing), `points` the semilandmarks as the
+ * file stores them, `used` the kind of path computed. `error` is null, or
+ * { code: 'start' | 'end', id } (place that landmark first) or
+ * { code: 'few' } (not enough points yet). `warning` is { code: 'apart' }
+ * when two points have no route between them across the surface (separate
+ * pieces of the mesh); that stretch is then a straight line.
  */
-export function computeCurve(def, entry, pointOf, project, { steps = 600 } = {}) {
-  const { ctrl, a, b, error } = curveInputs(def, entry, pointOf);
+export function computeCurve(def, entry, pointOf, project, { steps = 600, route = null } = {}) {
+  const { ctrl, faces, a, b, error } = curveInputs(def, entry, pointOf);
   const need = def.closed ? 3 : 2;
+  const used = pathOf(def) === 'geodesic' && route ? 'geodesic' : 'euclidean';
+  const trace = (closed) => {
+    if (used === 'euclidean') {
+      const step = chord(ctrl, closed) / steps;
+      return { path: step > 0 ? onSurface(densify(ctrl, closed, step), project) : [], apart: false };
+    }
+    const pts = closed ? [...ctrl, ctrl[0]] : ctrl;
+    const fs = closed ? [...faces, faces[0]] : faces;
+    const out = [pts[0]];
+    let apart = false;
+    for (let i = 1; i < pts.length; i++) {
+      const r = route(pts[i - 1], fs[i - 1], pts[i], fs[i]);
+      if (!r.ok) apart = true;
+      out.push(...r.path.slice(1));
+    }
+    return { path: out, apart };
+  };
   if (error || ctrl.length < need) {
-    const path = !error && ctrl.length >= 2 ? onSurface(densify(ctrl, false, chord(ctrl, false) / steps || 1), project) : [];
-    return { path, points: [], length: 0, error: error || { code: 'few', need } };
+    const path = !error && ctrl.length >= 2 ? trace(false).path : [];
+    return { path, points: [], length: 0, error: error || { code: 'few', need }, warning: null, used };
   }
   const closed = !!def.closed;
-  const step = chord(ctrl, closed) / steps;
-  if (!(step > 0)) return { path: [], points: [], length: 0, error: { code: 'few', need } };
-  const path = onSurface(densify(ctrl, closed, step), project);
+  if (!(chord(ctrl, closed) > 0)) return { path: [], points: [], length: 0, error: { code: 'few', need }, warning: null, used };
+  const { path, apart } = trace(closed);
   const length = pathLength(path);
   const points = resample(path, nPointsOf(def), a, b, closed).map((p) => {
     const s = project(p);
@@ -132,7 +167,7 @@ export function computeCurve(def, entry, pointOf, project, { steps = 600 } = {})
     if (s.normal) out.normal = s.normal;
     return out;
   });
-  return { path, points, length: round(length), error: null };
+  return { path, points, length: round(length), error: null, warning: apart ? { code: 'apart' } : null, used };
 }
 
 const round = (n) => Math.round(n * 1e6) / 1e6; // spec: up to 6 decimal places
@@ -140,8 +175,8 @@ const chord = (P, closed) => pathLength(closed ? [...P, P[0]] : P);
 const onSurface = (D, project) => D.map((p) => project(p)?.position || p);
 
 // What a file stores for the curve: the sampling actually used.
-export function samplingOf(def) {
-  return { path: 'euclidean', spacing: 'equal_arc_length', n_points: nPointsOf(def) };
+export function samplingOf(def, used = pathOf(def)) {
+  return { path: used, spacing: 'equal_arc_length', n_points: nPointsOf(def) };
 }
 
 // Is the curve finished on this specimen (counts as done)?

@@ -5,7 +5,7 @@
 // Every change goes through this class, which keeps undo/redo snapshots of
 // the whole set and fires a 'change' event the panels and markers listen to.
 
-import { curveDone, curveState, nPointsOf, MAX_CURVE_POINTS } from './curves.js';
+import { curveDone, curveState, nPointsOf, MAX_CURVE_POINTS, PATHS, pathOf } from './curves.js';
 
 export const ADHOC = '+adhoc'; // active "landmark" meaning: the next click adds an ad hoc point
 // A curve's control point in marker ids: "C01#2" is the third clicked point of C01.
@@ -825,7 +825,7 @@ export class Session extends EventTarget {
       k++;
       id = `C${String(k).padStart(2, '0')}`;
     } while (this._idTaken(id));
-    (this.template.curves ||= []).push({ id, name: n, n_points: 10, path: 'euclidean', spacing: 'equal_arc_length' });
+    (this.template.curves ||= []).push({ id, name: n, n_points: 10, path: 'geodesic', spacing: 'equal_arc_length' });
     if (!this.activeId) this.activeId = id;
     this._emit('template');
     return id;
@@ -833,7 +833,7 @@ export class Session extends EventTarget {
 
   /**
    * Change a template curve. patch: { id, name, description, start, end,
-   * n_points, closed }. Returns an error message, or null when applied.
+   * n_points, closed, path }. Returns an error message, or null when applied.
    */
   updateCurveDef(id, patch) {
     const c = this.curveDef(id);
@@ -856,6 +856,8 @@ export class Session extends EventTarget {
       if (!Number.isInteger(n) || n < 1 || n > MAX_CURVE_POINTS) return `The number of points must be a whole number from 1 to ${MAX_CURVE_POINTS}.`;
     }
     const closed = 'closed' in patch ? !!patch.closed : !!c.closed;
+    if ('path' in patch && !PATHS.includes(patch.path)) return 'Choose how the curve follows the surface.';
+    const path = 'path' in patch ? patch.path : pathOf(c);
     const ends = {};
     for (const k of ['start', 'end']) {
       ends[k] = k in patch ? patch[k] || null : c[k] || null;
@@ -864,7 +866,7 @@ export class Session extends EventTarget {
     if (!closed && ends.start && ends.start === ends.end) return 'A curve can’t start and end on the same landmark. Make it a closed loop instead.';
     const description = 'description' in patch ? String(patch.description).trim() : c.description || '';
 
-    const next = { ...c, id: newId, name, n_points: n, path: c.path || 'euclidean', spacing: c.spacing || 'equal_arc_length' };
+    const next = { ...c, id: newId, name, n_points: n, path, spacing: c.spacing || 'equal_arc_length' };
     if (description) next.description = description;
     else delete next.description;
     if (closed) {
