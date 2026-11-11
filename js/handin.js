@@ -1,13 +1,15 @@
 // Hand-ins (students) and combining them (instructors), following the 2D app.
 //
 // A hand-in is one zip: a landmark file per specimen, plus all of them as one
-// TPS and one CSV. Opening the zip again resumes the set. Combining takes
+// TPS and one CSV (and, when the template has curves, the geomorph sliders
+// file for the TPS). Opening the zip again resumes the set. Combining takes
 // several students' zips (or loose .lmk.json files) and gives one TPS and CSV.
 
 import { parseLandmarkFile, LandmarkFileError } from './landmark-file.js';
 import { unzipFiles } from './zip.js';
 import { toTps } from './tps.js';
 import { toCsv } from './csv.js';
+import { hasSliders, toSlidersCsv, slidersFileName } from './sliders.js';
 import {
   replicateOf, operatorOf, safeName, exportIds, docFileName, templateDifference, progress,
 } from './set-model.js';
@@ -48,6 +50,9 @@ export function handInFiles(docs, { operator = '', missing = '-999', includeAdho
   const tps = toTps(states, { ids, missing, includeAdhoc });
   files.push({ name: `${base}.tps`, data: tps.text });
   files.push({ name: `${base}.csv`, data: toCsv(states, { ids }) });
+  if (states.length && hasSliders(states[0].template)) {
+    files.push({ name: slidersFileName(base), data: toSlidersCsv(states[0].template) });
+  }
   return { files, notes: tps.notes };
 }
 

@@ -112,6 +112,15 @@ The TPS export writes `points` as ordinary rows; the curve definition file for g
 - Each semilandmark is a row named `<curve id>_<nn>` (`C01_01`, `C01_02`, …). In CSV it has `type = curve`, the curve id in `curve` and its number in `index`.
 - A curve that is missing or not finished is written as `n_points` missing rows (TPS: the missing value; CSV: `NA` with status `missing` or `not_done`), so every specimen has the same rows.
 
+**Sliders file (for geomorph).** Apps write which semilandmarks slide, and between which neighbours, as a CSV file in the form geomorph's `define.sliders()` writes `curveslide.csv`:
+
+- Header `"before","slide","after"`, then one row per sliding semilandmark. The numbers are row positions (from 1) in the TPS export of the same template.
+- It depends only on the template, so one file serves every specimen and every TPS file written with that template. Ad hoc points come last in the TPS, so they never shift the numbers.
+- Open curve: each semilandmark slides between the points next to it on the curve, which are other semilandmarks or the landmark an end is anchored on. A semilandmark at a free end is the curve's end point and does not slide.
+- Closed loop: every semilandmark slides, between its neighbours round the loop (only when the loop has at least three points).
+- Named `<TPS base name>_curveslide.csv`; a hand-in includes it when the template has curves.
+- In R: `gpagen(A, curves = as.matrix(read.csv("…_curveslide.csv")))`, with `A` from `readland.tps()` of the matching TPS file.
+
 **Unknown curves.** A curve entry whose `template_id` isn't in the template is kept unchanged when the file is saved again, like any field the app doesn't know.
 
 ## Surface semilandmarks (reserved, later)
@@ -345,3 +354,4 @@ three.js app (decided 2026-11-06):
 - [x] Planes (v0.4, decided 2026-11-08): optional template definitions built from landmarks (exact for three, best fit for more). Planes from clicked points are for exploring only and are not saved.
 - [x] Curves (v0.2) in 3D start with `"euclidean"` paths (straight segments between clicks, moved onto the surface). Semilandmark rows are named `<curve id>_<nn>`, as in the 2D app. `"geodesic"` paths and the geomorph sliders file come later.
 - [x] `"geodesic"` paths (shortest route across the surface) are the default for new 3D curves; `"euclidean"` stays available per curve (decided 2026-11-10).
+- [x] The sliders file follows geomorph's `curveslide.csv` (`before`, `slide`, `after` as TPS row numbers); free curve ends don't slide; every point of a closed loop slides (decided 2026-11-11).

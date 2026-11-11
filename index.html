@@ -957,7 +957,7 @@
         <div class="open-row">
           <button type="button" class="btn primary" id="handin-btn">Download hand-in</button>
         </div>
-        <p class="hint">One zip with a landmark file for every specimen, plus all of them as one TPS and one CSV file. Open the zip again to carry on where you left off.</p>
+        <p class="hint">One zip with a landmark file for every specimen, plus all of them as one TPS and one CSV file (and the sliders file when the template has curves). Open the zip again to carry on where you left off.</p>
       </section>
 
       <section aria-labelledby="tps-h">
@@ -965,7 +965,9 @@
         <div class="open-row">
           <button type="button" class="btn" id="export-tps">Export TPS</button>
           <button type="button" class="btn" id="export-csv">Export CSV</button>
+          <button type="button" class="btn" id="export-sliders" hidden>Export sliders</button>
         </div>
+        <p class="hint" id="sliders-hint" hidden>Sliders: which curve points slide, and between which neighbours, for geomorph. The numbers are rows of the TPS file. In R: <span class="mono">gpagen(A, curves = as.matrix(read.csv("…_curveslide.csv")))</span></p>
         <div class="field">
           <label class="field-label" for="tps-missing">Missing value in TPS<small>written as x, y and z</small></label>
           <input type="text" id="tps-missing" class="mono tps-missing" value="-999">

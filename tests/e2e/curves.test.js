@@ -216,6 +216,22 @@ describe('along the surface or straight lines', () => {
   });
 });
 
+describe('the sliders file for geomorph', () => {
+  test('appears in the File tab once the template has a curve, and gives the TPS rows that slide', async () => {
+    const page = await start();
+    await selectTab(page, 'File');
+    assert.equal(await page.locator('#export-sliders').isVisible(), false, 'no curves: no sliders button');
+    await addCurve(page, { n: 3 }); // LM01 → LM02, 3 points
+    await selectTab(page, 'File');
+    assert.ok(await page.locator('#export-sliders').isVisible());
+    await page.locator('#export-sliders').click();
+    const [file] = await waitForSaves(page, 1);
+    assert.match(file.name, /_curveslide\.csv$/);
+    // The example template has 14 landmarks, so the curve's points are TPS rows 15-17.
+    assert.equal(file.text, '"before","slide","after"\n1,15,16\n15,16,17\n16,17,2\n');
+  });
+});
+
 describe('saving and opening', () => {
   test('the curve is saved with the specimen and comes back when the file is opened', async () => {
     let page = await start();

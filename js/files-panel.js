@@ -11,6 +11,7 @@ import { buildLandmarkFile, parseLandmarkFile, LandmarkFileError } from './landm
 import { replicateOf, recordHasData } from './session.js';
 import { toTps } from './tps.js';
 import { toCsv } from './csv.js';
+import { hasSliders, toSlidersCsv, slidersFileName } from './sliders.js';
 import { zipFiles } from './zip.js';
 import { handInFiles, readEntries, combineEntries, stateOf } from './handin.js';
 import { exportIds, safeName, docFileName, templateDifference } from './set-model.js';
@@ -22,6 +23,7 @@ const UNITS = new Set(['mm', 'cm', 'm', 'um', 'unknown']);
 const JSON_TYPES = [{ description: 'Landmark file', accept: { 'application/json': ['.json'] } }];
 const TPS_TYPES = [{ description: 'TPS file', accept: { 'text/plain': ['.tps'] } }];
 const CSV_TYPES = [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }];
+const SLIDERS_NOTE = 'The numbers are rows of the TPS file with the same template.';
 const ZIP_TYPES = [{ description: 'Zip file', accept: { 'application/zip': ['.zip'] } }];
 
 const stamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -91,6 +93,7 @@ export function setupFiles(app) {
   $('handin-btn').addEventListener('click', handIn);
   $('export-tps').addEventListener('click', () => exportSet('tps'));
   $('export-csv').addEventListener('click', () => exportSet('csv'));
+  $('export-sliders').addEventListener('click', () => exportSliders());
   $('combine-input').addEventListener('change', (e) => {
     const files = [...e.target.files];
     e.target.value = '';
@@ -107,6 +110,10 @@ export function setupFiles(app) {
   // ---- Status --------------------------------------------------------------
 
   function renderStatus() {
+    // The sliders file only makes sense when the template has curves.
+    const sliders = hasSliders(session.template);
+    $('export-sliders').hidden = !sliders;
+    $('sliders-hint').hidden = !sliders;
     const rec = session.current;
     const el = $('save-status');
     const time = rec.savedAt ? rec.savedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
@@ -371,7 +378,8 @@ export function setupFiles(app) {
       for (const r of recs) r.dirty = false;
       renderStatus();
       app.renderStrip();
-      ui.showMessage('note', `Saved the hand-in ${res.name}: ${plural(recs.length, 'specimen')}, with TPS and CSV.${notes.length ? ' ' + notes.join(' ') : ''}`);
+      const withSliders = files.some((f) => /_curveslide\.csv$/.test(f.name));
+      ui.showMessage('note', `Saved the hand-in ${res.name}: ${plural(recs.length, 'specimen')}, with TPS${withSliders ? ', CSV and the sliders file' : ' and CSV'}.${notes.length ? ' ' + notes.join(' ') : ''}`);
     };
     if (unfinished.length) {
       ui.showPrompt({
@@ -421,6 +429,15 @@ export function setupFiles(app) {
     }
   }
 
+  // The geomorph sliders file. It depends only on the template, so it is
+  // named like the TPS export it belongs to.
+  function exportSliders() {
+    const recs = exportRecords();
+    const base = recs.length === 1 ? safeName(recs[0].specimen.id) || 'specimen'
+      : recs.length ? `${safeName(operator()) || 'specimens'}_landmarks` : safeName(session.template.id) || 'template';
+    writeExport(slidersFileName(base), toSlidersCsv(session.template), CSV_TYPES, 'the sliders for geomorph', [SLIDERS_NOTE]);
+  }
+
   async function writeExport(filename, text, types, what, notes) {
     let res;
     try {
@@ -466,6 +483,9 @@ export function setupFiles(app) {
       actions: [
         { label: 'Save TPS file', primary: true, keepOpen: true, run: () => { const out = toTps(r.states, { ids: r.ids, missing: missingValue(), includeAdhoc: $('tps-adhoc').checked }); writeExport(`${base}.tps`, out.text, TPS_TYPES, plural(r.states.length, 'specimen'), out.notes); } },
         { label: 'Save CSV file', keepOpen: true, run: () => writeExport(`${base}.csv`, toCsv(r.states, { ids: r.ids }), CSV_TYPES, plural(r.states.length, 'specimen'), []) },
+        ...(hasSliders(r.template)
+          ? [{ label: 'Save sliders file', keepOpen: true, run: () => writeExport(slidersFileName(base), toSlidersCsv(r.template), CSV_TYPES, 'the sliders for geomorph', [SLIDERS_NOTE]) }]
+          : []),
         { label: 'Close' },
       ],
     });

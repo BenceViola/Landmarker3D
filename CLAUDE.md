@@ -32,6 +32,7 @@ Browser app for placing 3D landmarks on STL/PLY meshes, for teaching and researc
 | `js/curves.js` | (advanced) Curve maths: path through the clicks moved onto the surface, equal arc length resampling, states |
 | `js/geodesic.js` | (advanced) Shortest paths across the surface: corner table (welded copy, file face order kept), A* along edges, pulling the path tight |
 | `js/curve-view.js` | (advanced) Computes the current specimen's curves on the mesh on screen and draws them; clicked points can be dragged |
+| `js/sliders.js` | (advanced) The geomorph sliders file (`<base>_curveslide.csv`: before, slide, after as TPS rows), from the template alone |
 | `js/export-rows.js` | Rows of one specimen for TPS and CSV: landmarks and curve semilandmarks in export order, then ad hoc points |
 | `js/picking.js` | BVH raycasting, anchors (face + barycentric), snapping, occlusion |
 | `js/markers.js` | Landmark spheres and labels; labels hide behind the surface |
@@ -44,7 +45,7 @@ Browser app for placing 3D landmarks on STL/PLY meshes, for teaching and researc
 | `js/landmark-file.js` | Build and parse `.lmk.json` |
 | `js/tps.js` | TPS writer |
 | `js/csv.js` | CSV writer (long format) |
-| `js/handin.js` | Hand-in zip contents, reading zips, combining hand-ins |
+| `js/handin.js` | Hand-in zip contents (with the sliders file when the template has curves), reading zips, combining hand-ins |
 | `js/zip.js` | Small zip writer and reader (same as 2D) |
 | `js/file-io.js` | Saving: Save dialog (Chrome/Edge), claude.ai download capability, plain download |
 | `js/sample.js` | Generated example mesh shown at start |
@@ -81,7 +82,7 @@ Short, plain sentences from the student's side of the screen. Errors say what we
 ## Not done yet
 
 - A gallery comparing one landmark across specimens (the 2D app's Compare view); in 3D it needs its own design because of the three-mesh limit.
-- Curves: on `advanced`, geodesic (default) and euclidean paths are done (template curves, tracing, dragging, saving, TPS/CSV rows `C01_01`…). Still to do: the geomorph curve-sliding file, repeatability per curve, curves in the Planes tab.
+- Curves: on `advanced`, geodesic (default) and euclidean paths are done (template curves, tracing, dragging, saving, TPS/CSV rows `C01_01`…). The geomorph sliders file is done too (File tab, combine dialog, hand-in). Still to do: the same sliders file and hand-in entry in the 2D app, repeatability per curve, curves in the Planes tab.
 - Saving and opening templates as separate `.template.json` files; opening landmark files that reference one (currently refused).
 - A JSON Schema file for the format.
 - Deferred: Slicer `.mrk.json` export.
