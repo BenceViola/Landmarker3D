@@ -223,6 +223,12 @@ describe('template editor', () => {
     await id.press('Tab');
     await page.locator('.tpl-err').waitFor();
     assert.match(await page.locator('.tpl-err').innerText(), /LM03 is already used/);
+    // The field goes back to the saved ID, also when the cursor stays in it (Enter).
+    await page.waitForFunction(() => document.getElementById('tpl-id-LM02')?.value === 'LM02');
+    await page.locator('#tpl-id-LM02').fill('LM01');
+    await page.locator('#tpl-id-LM02').press('Enter');
+    await page.waitForFunction(() => /LM01 is already used/.test(document.querySelector('.tpl-err')?.textContent || ''));
+    await page.waitForFunction(() => document.getElementById('tpl-id-LM02')?.value === 'LM02', null, { timeout: 3000 });
   });
 
   test('starting an empty template asks first', async () => {

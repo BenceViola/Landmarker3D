@@ -77,9 +77,11 @@ export class TemplateEditor {
     // for curves) must not throw it away.
     const typing = focusId && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) &&
       !['checkbox', 'radio'].includes(document.activeElement.type) &&
-      document.activeElement.value !== document.activeElement.defaultValue
+      document.activeElement.value !== document.activeElement.defaultValue &&
+      document.activeElement.id !== this._committed
       ? document.activeElement.value
       : null;
+    this._committed = null;
     const pending = this.root.querySelector('#tpl-new-name')?.value || '';
     const pendingCurve = this.root.querySelector('#tpl-new-curve')?.value || '';
     const bulk = this.root.querySelector('#tpl-bulk')?.value || '';
@@ -287,7 +289,10 @@ export class TemplateEditor {
   }
 
   _onChange(e) {
-    this._sig = null; // the student acted here: always redraw, so refused input goes back to the saved value
+    // The student committed this field (Enter or leaving it): redraw it from
+    // the template, so a refused value goes back to the saved one.
+    this._sig = null;
+    this._committed = e.target.id || null;
     const s = this.session;
     const cedit = e.target.dataset.cedit;
     if (cedit) {
