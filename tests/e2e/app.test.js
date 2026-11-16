@@ -524,8 +524,18 @@ describe('template editor while the app redraws', () => {
     const name = page.locator('#tpl-name-LM02');
     await name.fill('Nasion, typed slowly');
     // Something else redraws the tab before the field is left (as when a mesh finishes preparing).
+    // A redraw with nothing new to show leaves the field alone.
+    const same = await page.evaluate(() => {
+      const before = document.getElementById('tpl-name-LM02');
+      window.__lmk.renderAll();
+      const el = document.getElementById('tpl-name-LM02');
+      return { replaced: el !== before, value: el.value };
+    });
+    assert.deepEqual(same, { replaced: false, value: 'Nasion, typed slowly' });
+    // A redraw that has something new (here another landmark renamed) rebuilds it, keeping what is typed.
     const after = await page.evaluate(() => {
       const before = document.getElementById('tpl-name-LM02');
+      window.__lmk.session.template.landmarks[3].name = 'Changed elsewhere';
       window.__lmk.renderAll();
       const el = document.getElementById('tpl-name-LM02');
       return { replaced: el !== before, value: el.value, focused: document.activeElement === el };

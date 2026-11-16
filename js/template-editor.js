@@ -53,6 +53,20 @@ export class TemplateEditor {
     const s = this.session;
     const t = s.template;
 
+    // Nothing this tab shows has changed (e.g. a redraw of the whole app when
+    // a mesh has been prepared for curves): leave the fields alone, so a
+    // value being typed isn't disturbed.
+    const sig = JSON.stringify([
+      t,
+      t.landmarks.map((d) => !!s.point(d.id)),
+      s.curveDefs.map((c) => s.hasData(c.id)),
+      [...this.errors],
+      [...this.open],
+      this.confirming,
+    ]);
+    if (sig === this._sig && this.root.firstChild) return;
+    this._sig = sig;
+
     // Re-rendering replaces the inputs; put focus and caret back where they were.
     const focusId = document.activeElement && this.root.contains(document.activeElement)
       ? document.activeElement.id
@@ -273,6 +287,7 @@ export class TemplateEditor {
   }
 
   _onChange(e) {
+    this._sig = null; // the student acted here: always redraw, so refused input goes back to the saved value
     const s = this.session;
     const cedit = e.target.dataset.cedit;
     if (cedit) {
@@ -316,6 +331,7 @@ export class TemplateEditor {
   }
 
   _onClick(e) {
+    this._sig = null; // the student acted here: always redraw, so refused input goes back to the saved value
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const s = this.session;
