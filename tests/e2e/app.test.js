@@ -516,3 +516,23 @@ describe('performance and reliability', () => {
     current.errors.length = 0; // the two deliberate errors
   });
 });
+
+describe('template editor while the app redraws', () => {
+  test('a value being typed survives a redraw of the Template tab and is saved on leaving the field', async () => {
+    const page = await start();
+    await selectTab(page, 'Template');
+    const name = page.locator('#tpl-name-LM02');
+    await name.fill('Nasion, typed slowly');
+    // Something else redraws the tab before the field is left (as when a mesh finishes preparing).
+    const after = await page.evaluate(() => {
+      const before = document.getElementById('tpl-name-LM02');
+      window.__lmk.renderAll();
+      const el = document.getElementById('tpl-name-LM02');
+      return { replaced: el !== before, value: el.value, focused: document.activeElement === el };
+    });
+    assert.deepEqual(after, { replaced: true, value: 'Nasion, typed slowly', focused: true });
+    await page.locator('#tpl-name-LM02').press('Tab');
+    await page.waitForFunction(() => window.__lmk.session.template.landmarks[1].name === 'Nasion, typed slowly');
+    assert.equal(await page.evaluate(() => window.__lmk.session.undoStack.length), 1, 'one undo step');
+  });
+});

@@ -58,6 +58,14 @@ export class TemplateEditor {
       ? document.activeElement.id
       : null;
     const caret = focusId ? document.activeElement.selectionStart : null;
+    // Something typed but not yet committed (fields commit when you leave
+    // them). A re-render in the meantime (e.g. when the mesh has been prepared
+    // for curves) must not throw it away.
+    const typing = focusId && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) &&
+      !['checkbox', 'radio'].includes(document.activeElement.type) &&
+      document.activeElement.value !== document.activeElement.defaultValue
+      ? document.activeElement.value
+      : null;
     const pending = this.root.querySelector('#tpl-new-name')?.value || '';
     const pendingCurve = this.root.querySelector('#tpl-new-curve')?.value || '';
     const bulk = this.root.querySelector('#tpl-bulk')?.value || '';
@@ -125,6 +133,16 @@ export class TemplateEditor {
     if (focusId) {
       const el = this.root.querySelector(`#${CSS.escape(focusId)}`);
       if (el) {
+        if (typing !== null && el.value !== typing) {
+          el.value = typing;
+          // Leaving the field commits it as usual (a value set by script
+          // wouldn't fire 'change' on its own).
+          let changed = false;
+          el.addEventListener('change', () => (changed = true), { once: true });
+          el.addEventListener('blur', () => {
+            if (!changed && el.isConnected && el.value !== el.defaultValue) el.dispatchEvent(new Event('change', { bubbles: true }));
+          }, { once: true });
+        }
         el.focus();
         if (caret !== null && typeof el.setSelectionRange === 'function') {
           try { el.setSelectionRange(caret, caret); } catch { /* not a text field */ }
