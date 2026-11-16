@@ -70,6 +70,7 @@ export class CurveView {
   setShowLabels(on) {
     this.showLabels = on;
     this._labelsDirty = true;
+    this.viewer.requestRender();
   }
 
   // ---- Computing ------------------------------------------------------------
@@ -167,6 +168,7 @@ export class CurveView {
   // ---- Drawing --------------------------------------------------------------
 
   draw() {
+    this.viewer.requestRender();
     const s = this.session;
     const seen = new Set();
     if (this.picker.mesh) {
@@ -180,13 +182,21 @@ export class CurveView {
         const r = this.baseRadius * this.sizeFactor;
 
         const path = this.pathOf(def.id);
-        if (path.length >= 2) {
+        // The line is rebuilt only when its path changed (draw() runs on every
+        // change in the app, e.g. selecting another landmark).
+        if (it.path === path) {
+          // unchanged
+        } else if (path.length >= 2) {
+          it.path = path;
           const seg = new Float32Array((path.length - 1) * 6);
           for (let i = 1; i < path.length; i++) seg.set([...path[i - 1], ...path[i]], (i - 1) * 6);
           it.line.geometry.dispose();
           it.line.geometry = new LineSegmentsGeometry().setPositions(seg);
           it.line.visible = true;
-        } else it.line.visible = false;
+        } else {
+          it.path = path;
+          it.line.visible = false;
+        }
         it.lineMat.color.setHex(color);
         it.lineMat.linewidth = active ? 3 : 2;
 
@@ -283,7 +293,7 @@ export class CurveView {
     label.center.set(0, 1);
     anchor.add(label);
     this.group.add(root);
-    const it = { root, line, lineMat, anchor, label, el, text, dots: null, cps: null, cpPositions: [], cpRadius: 0, active: false, hasAt: false };
+    const it = { path: null, root, line, lineMat, anchor, label, el, text, dots: null, cps: null, cpPositions: [], cpRadius: 0, active: false, hasAt: false };
     this.items.set(id, it);
     return it;
   }

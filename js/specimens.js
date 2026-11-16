@@ -59,6 +59,9 @@ export function setupSpecimens(app) {
     if (shown && shown !== rec && viewer.box) shown.view = viewer.getView();
     const sha = shaOf(rec);
     let entry = sha ? store.get(sha) : null;
+    // Until this specimen's mesh is ready, clicks must not land on the mesh
+    // still on screen (it belongs to another specimen).
+    if (rec !== shown) picker.clear();
 
     if (!entry && rec.file) {
       ui.setBusy(`Reading ${rec.file.name}…`);
@@ -79,7 +82,8 @@ export function setupSpecimens(app) {
         forgetFile(rec);
         ui.showMessage('error', `Couldn’t read ${name} again. It may have been moved or deleted; open it again to see ${rec.specimen.id}.`);
       }
-      if (my !== token) return ui.setBusy(null);
+      // A newer show() started meanwhile; it owns the busy message now.
+      if (my !== token) return;
     }
 
     if (entry) {
@@ -88,12 +92,21 @@ export function setupSpecimens(app) {
         await app.nextFrame();
         if (my !== token) return;
       }
-      display(entry, rec.view);
-      picker.setGeometry(entry.mesh.geometry);
-      markers.setMeshSize(viewer.diagonal);
-      app.curveView?.setMeshSize(viewer.diagonal);
-      app.state.mesh = entry.mesh;
-    } else {
+      try {
+        display(entry, rec.view);
+        picker.setGeometry(entry.mesh.geometry);
+        markers.setMeshSize(viewer.diagonal);
+        app.curveView?.setMeshSize(viewer.diagonal);
+        app.state.mesh = entry.mesh;
+      } catch (err) {
+        // Usually memory: a very large mesh on a computer short of it.
+        console.error(err);
+        store.remove(sha);
+        entry = null;
+        ui.showMessage('error', `${rec.specimen.mesh?.file || 'This mesh'} couldn’t be prepared for display; the computer may be short of memory. Close other tabs or programs and open it again. The landmarks of ${rec.specimen.id} are kept.`);
+      }
+    }
+    if (!entry) {
       viewer.clear();
       picker.clear();
       app.state.mesh = null;

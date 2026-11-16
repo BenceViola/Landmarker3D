@@ -139,6 +139,36 @@ describe('working through a set', () => {
     assert.equal(await rowState(page, 'LM02'), 'Placed', 'picking works on a re-read mesh');
   });
 
+  test('switching quickly while meshes are read again: clicks never reach the wrong mesh', async () => {
+    const page = await start();
+    await openMeshes(page, files.balls);
+    // Watch, every frame, whether a click could land on a mesh that isn't the current specimen's.
+    await page.evaluate(() => {
+      window.__wrong = 0;
+      const check = () => {
+        const { picker, session, specimens } = window.__lmk;
+        const busy = !document.getElementById('busy').hidden;
+        const sha = session.current.specimen.mesh?.sha256;
+        const geo = picker.mesh?.geometry;
+        if (!busy && geo && specimens.store.entries.get(sha)?.mesh.geometry !== geo) window.__wrong++;
+        window.__watch = requestAnimationFrame(check);
+      };
+      check();
+    });
+    for (let i = 0; i < 6; i++) await page.keyboard.press(i % 3 === 2 ? '[' : ']');
+    await ready(page);
+    await page.waitForTimeout(300);
+    await ready(page);
+    assert.equal(await page.evaluate(() => window.__wrong), 0);
+    const ok = await page.evaluate(() => {
+      const { picker, session, specimens } = window.__lmk;
+      return specimens.store.entries.get(session.current.specimen.mesh.sha256)?.mesh.geometry === picker.mesh?.geometry;
+    });
+    assert.ok(ok, 'the mesh you click on is the current specimen\'s');
+    await clickAt(page, await canvasCenter(page));
+    assert.equal(await rowState(page, 'LM01'), 'Placed');
+  });
+
   test('undo goes back to the specimen the change was made on', async () => {
     const page = await start();
     await openMeshes(page, files.balls.slice(0, 2));

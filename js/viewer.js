@@ -9,6 +9,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
 const BONE = 0xe4ddcf;
+const IDLE_REDRAW_MS = 500;
 
 // Named views along the mesh's own axes. `dir` points from the mesh to the camera.
 const VIEWS = {
@@ -83,14 +84,37 @@ export class Viewer {
     new ResizeObserver(this._resize).observe(container);
     this._resize();
 
-    const loop = () => {
+    // Drawing a mesh of a million triangles 60 times a second keeps the
+    // graphics card busy (and laptop fans loud) for nothing, so the view is
+    // only drawn when something may have changed: the camera moved, a
+    // pointer or key was used, or a part of the app asked (requestRender).
+    // As a safety net it is also drawn twice a second.
+    this.frames = 0; // frames drawn, for the tests
+    this._pending = 2;
+    this._lastDraw = 0;
+    this.controls.addEventListener('change', () => this.requestRender());
+    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup', 'input', 'change']) {
+      window.addEventListener(type, () => this.requestRender(), { capture: true, passive: true });
+    }
+    const loop = (now) => {
       this.controls.update();
-      for (const hook of this.frameHooks) hook();
-      this.renderer.render(this.scene, this.camera);
-      this.labelRenderer.render(this.scene, this.camera);
+      if (this._pending > 0 || now - this._lastDraw > IDLE_REDRAW_MS) {
+        this._pending = Math.max(0, this._pending - 1);
+        this._lastDraw = now;
+        for (const hook of this.frameHooks) hook();
+        this.renderer.render(this.scene, this.camera);
+        this.labelRenderer.render(this.scene, this.camera);
+        this.frames++;
+      }
       requestAnimationFrame(loop);
     };
-    loop();
+    requestAnimationFrame(loop);
+  }
+
+  // Draw the view on the next frames (two, so that anything updated by
+  // a frame hook, like label visibility, is drawn too).
+  requestRender() {
+    this._pending = Math.max(this._pending, 2);
   }
 
   addFrameHook(fn) {
@@ -104,6 +128,7 @@ export class Viewer {
 
   setBackground(color) {
     this.scene.background = new THREE.Color(color);
+    this.requestRender();
   }
 
   // Show a mesh. `source` is kept untouched for later picking and anchors.
@@ -122,6 +147,7 @@ export class Viewer {
     this._buildMesh();
     if (view) this.setView(view);
     else this.viewFrom('home');
+    this.requestRender();
   }
 
   // Show nothing (a specimen whose mesh isn't open).
@@ -130,16 +156,21 @@ export class Viewer {
     if (this.wire) this.scene.remove(this.wire);
     this.mesh = this.wire = this.source = this.box = null;
     this.displayCache = {};
+    this.requestRender();
   }
 
   // Hide the part of the mesh on one side of a plane (cut-away view), or
   // show all of it again with null. `keep` is a THREE.Plane: what has a
   // negative distance to it is hidden.
   setClip(keep) {
+    const cur = this.material.clippingPlanes?.[0] || null;
+    // Unchanged: nothing to do (changing materials makes three.js check its shaders again).
+    if ((!keep && !cur) || (keep && cur && keep.equals(cur))) return;
     const planes = keep ? [keep] : [];
     this.material.clippingPlanes = planes;
     this.wireMaterial.clippingPlanes = planes;
     this.material.needsUpdate = this.wireMaterial.needsUpdate = true;
+    this.requestRender();
   }
 
   // The camera position, to come back to when switching back to a specimen.
@@ -163,6 +194,7 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
     this.camera.lookAt(this.controls.target);
     this.controls.update();
+    this.requestRender();
   }
 
   // A small picture of the mesh from the default view, as a data URL, for the
@@ -207,6 +239,7 @@ export class Viewer {
   setWireframe(on) {
     this.options.wireframe = on;
     if (this.wire) this.wire.visible = on;
+    this.requestRender();
   }
 
   setVertexColors(on) {
@@ -214,6 +247,7 @@ export class Viewer {
     this.material.vertexColors = on;
     this.material.color.set(on ? 0xffffff : BONE);
     this.material.needsUpdate = true;
+    this.requestRender();
   }
 
   // Frame the whole mesh, looking along one of the mesh's axes.
@@ -244,6 +278,7 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
     this.camera.lookAt(sphere.center);
     this.controls.update();
+    this.requestRender();
   }
 
   // Build (or reuse) the display copy for the current shading mode.
@@ -282,6 +317,7 @@ export class Viewer {
     this.wire.visible = this.options.wireframe;
     this.wire.renderOrder = 1;
     this.scene.add(this.mesh, this.wire);
+    this.requestRender();
     this.setVertexColors(this.options.vertexColors && !!g.attributes.color);
   }
 
@@ -293,5 +329,6 @@ export class Viewer {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.controls.handleResize();
+    this.requestRender();
   }
 }

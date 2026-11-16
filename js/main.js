@@ -53,6 +53,32 @@ try {
 }
 const { viewer, picker, markers, curveView } = app;
 
+// The graphics card can stop drawing (very large meshes, a computer short of
+// memory, a driver reset). The landmarks live in the page, not on the card,
+// so they are safe; three.js gets the view back by itself when it can.
+let contextLost = false;
+viewer?.renderer.domElement.addEventListener('webglcontextlost', () => {
+  contextLost = true;
+  showMessage('error', 'The 3D view stopped drawing because the graphics card was reset. Your landmarks are safe. Save them now; the view usually comes back by itself, otherwise reload the page after saving.');
+});
+viewer?.renderer.domElement.addEventListener('webglcontextrestored', () => {
+  if (contextLost) clearMessage();
+  contextLost = false;
+  viewer.requestRender();
+});
+
+// An unexpected error shouldn't pass silently: the student may keep working
+// on a page that no longer saves. Shown once; details stay in the console.
+let errorShown = false;
+function reportUnexpected(err) {
+  const text = String(err?.message || err || '');
+  if (errorShown || /ResizeObserver loop/.test(text)) return;
+  errorShown = true;
+  showMessage('error', 'Something went wrong in the app. Your landmarks are still here: save them now, then reload the page. If it happens again, note what you were doing.');
+}
+window.addEventListener('error', (e) => reportUnexpected(e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => reportUnexpected(e.reason));
+
 function applyTheme() {
   const color = getComputedStyle(document.documentElement).getPropertyValue('--viewport').trim();
   if (viewer && color) viewer.setBackground(color);
@@ -78,6 +104,7 @@ app.planes = planes;
 
 session.addEventListener('change', (e) => {
   const kind = e.detail.kind;
+  app.viewer?.requestRender();
   // Another specimen became current (switching, undo, removing one): show it.
   if (specimens && !specimens.batch && session.current !== specimens.shown) {
     specimens.show(session.current);
@@ -383,6 +410,7 @@ function dialog({ title, html, actions }) {
 }
 
 function setBusy(text) {
+  app.viewer?.requestRender();
   $('busy').hidden = !text;
   $('busy-text').textContent = text || '';
 }

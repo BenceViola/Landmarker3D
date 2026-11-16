@@ -53,10 +53,12 @@ export class Markers {
   setShowLabels(on) {
     this.showLabels = on;
     this._labelsDirty = true;
+    this.viewer.requestRender();
   }
 
   // Bring markers in line with the session's points.
   sync() {
+    this.viewer.requestRender();
     const s = this.session;
     const seen = new Set();
     // No mesh on screen (a specimen waiting for its mesh): no markers.
@@ -122,6 +124,7 @@ export class Markers {
   }
 
   _applyScale() {
+    this.viewer.requestRender();
     for (const item of this.items.values()) {
       item.mesh.scale.setScalar(this.baseRadius * this.sizeFactor * (item.active ? 1.4 : 1));
     }

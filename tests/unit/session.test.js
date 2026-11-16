@@ -274,6 +274,54 @@ describe('undo and redo', () => {
     assert.equal(s.undoStack.length, 200);
   });
 
+  test('a landmark edit keeps only its own specimen in the history; a template edit keeps the set', () => {
+    const s = fresh();
+    const a = s.current;
+    const others = [];
+    for (let i = 0; i < 20; i++) {
+      const r = s.addRecord({ specimen: { id: `S${i}` } });
+      s.switchTo(r.uid);
+      for (const id of ['LM01', 'LM02', 'LM03']) s.place(id, hit(i));
+      others.push(r);
+    }
+    s.switchTo(a.uid);
+    s.place('LM01', hit(99));
+    const step = s.undoStack.at(-1);
+    assert.equal(step.uid, a.uid);
+    assert.deepEqual(JSON.parse(step.json).points.map(([uid]) => uid), [a.uid]);
+    s.updateDef('LM02', { name: 'Renamed' });
+    assert.equal(s.undoStack.at(-1).uid, null);
+    assert.equal(JSON.parse(s.undoStack.at(-1).json).points.length, 21);
+  });
+
+  test('undo and redo across specimens restore each specimen and go back to it', () => {
+    const s = fresh();
+    const a = s.current;
+    const b = s.addRecord({ specimen: { id: 'B' } });
+    s.place('LM01', hit(1)); // on A
+    s.switchTo(b.uid);
+    s.place('LM01', hit(2)); // on B
+    s.switchTo(a.uid);
+    s.updateDef('LM03', { name: 'Third' }); // template edit, the whole set
+    s.markMissing('LM02'); // on A
+    s.undo(); // A: LM02 back to to-do
+    assert.equal(s.current, a);
+    assert.equal(a.points.some((p) => p.id === 'LM02'), false);
+    s.undo(); // the template edit
+    assert.equal(s.template.landmarks.find((l) => l.id === 'LM03').name !== 'Third', true);
+    s.undo(); // B's landmark
+    assert.equal(s.current, b);
+    assert.deepEqual(b.points, []);
+    assert.equal(a.points.length, 1);
+    s.redo();
+    s.redo();
+    s.redo();
+    assert.equal(b.points.length, 1);
+    assert.equal(s.template.landmarks.find((l) => l.id === 'LM03').name, 'Third');
+    assert.equal(a.points.find((p) => p.id === 'LM02').status, 'missing');
+    assert.equal(s.current, a);
+  });
+
   test('change events fire with a kind for each kind of edit', () => {
     const s = fresh();
     const kinds = changes(s);

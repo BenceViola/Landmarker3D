@@ -313,32 +313,39 @@ export class Session extends EventTarget {
   undo() {
     if (!this.canUndo) return;
     const before = this.current;
-    this.redoStack.push(this._snapshot());
-    this._restore(this.undoStack.pop());
+    const step = this.undoStack.pop();
+    this.redoStack.push(this._snapshot(step.uid));
+    this._restore(step);
     this._emit('undo', { switched: this.current !== before });
   }
 
   redo() {
     if (!this.canRedo) return;
     const before = this.current;
-    this.undoStack.push(this._snapshot());
-    this._restore(this.redoStack.pop());
+    const step = this.redoStack.pop();
+    this.undoStack.push(this._snapshot(step.uid));
+    this._restore(step);
     this._emit('redo', { switched: this.current !== before });
   }
 
-  // The whole set: a template edit can change every specimen's points.
-  _snapshot() {
-    return JSON.stringify({
-      template: this.template,
-      points: this.records.map((r) => [r.uid, r.points, r.curves || []]),
+  // An undo step. Editing one specimen's points (placing, moving, clearing,
+  // a curve click) keeps only that specimen (`uid`), so the history stays
+  // small however many specimens are open. A template edit can change every
+  // specimen's points, so it keeps the template and the whole set (uid null).
+  _snapshot(uid = null) {
+    const recs = uid ? [this.record(uid)].filter(Boolean) : this.records;
+    const s = {
+      points: recs.map((r) => [r.uid, r.points, r.curves || []]),
       current: this.current.uid,
       activeId: this.activeId,
-    });
+    };
+    if (!uid) s.template = this.template;
+    return { uid, json: JSON.stringify(s) };
   }
 
-  _restore(snapshot) {
-    const s = JSON.parse(snapshot);
-    this.template = s.template;
+  _restore(step) {
+    const s = JSON.parse(step.json);
+    if (s.template) this.template = s.template;
     for (const [uid, points, curves] of s.points) {
       const rec = this.record(uid);
       if (rec) {
@@ -351,8 +358,9 @@ export class Session extends EventTarget {
     this.activeId = s.activeId;
   }
 
-  _commit() {
-    this.undoStack.push(this._snapshot());
+  // `uid`: the specimen this edit changes, or null for a template edit.
+  _commit(uid = null) {
+    this.undoStack.push(this._snapshot(uid));
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
     this.redoStack = [];
   }
@@ -389,7 +397,7 @@ export class Session extends EventTarget {
   place(id, hit) {
     if (!id || !hit) return null;
     if (this.isCurve(id)) return this.addControlPoint(id, hit);
-    this._commit();
+    this._commit(this.current.uid);
     let p;
     if (id === ADHOC) {
       const n = this._nextAdhocNumber();
@@ -411,7 +419,7 @@ export class Session extends EventTarget {
 
   // Dragging a marker: one undo step for the whole drag.
   beginMove() {
-    this._pendingMove = this._snapshot();
+    this._pendingMove = this._snapshot(this.current.uid);
   }
 
   moveTo(id, hit) {
@@ -442,7 +450,7 @@ export class Session extends EventTarget {
   markMissing(id) {
     if (!id || id === ADHOC) return;
     if (this.isCurve(id)) {
-      this._commit();
+      this._commit(this.current.uid);
       const c = this._ensureCurve(id);
       c.status = 'missing';
       c.control_points = [];
@@ -453,7 +461,7 @@ export class Session extends EventTarget {
       this._emit('status');
       return;
     }
-    this._commit();
+    this._commit(this.current.uid);
     let p = this.point(id);
     if (!p) {
       p = { id, template_id: this.def(id) ? id : null, status: 'missing' };
@@ -473,14 +481,14 @@ export class Session extends EventTarget {
     if (this.isCurve(id)) {
       const c = this.curve(id);
       if (!c || !c.points?.length) return;
-      this._commit();
+      this._commit(this.current.uid);
       c.status = c.status === 'estimated' ? 'placed' : 'estimated';
       this._emit('status');
       return;
     }
     const p = this.point(id);
     if (!p || !p.position) return;
-    this._commit();
+    this._commit(this.current.uid);
     p.status = p.status === 'estimated' ? 'placed' : 'estimated';
     this._emit('status');
   }
@@ -491,7 +499,7 @@ export class Session extends EventTarget {
       const list = this.current.curves;
       const j = list.findIndex((c) => c.id === id);
       if (j < 0) return;
-      this._commit();
+      this._commit(this.current.uid);
       list.splice(j, 1);
       this.activeId = id;
       this._emit('clear');
@@ -499,7 +507,7 @@ export class Session extends EventTarget {
     }
     const i = this.points.findIndex((p) => p.id === id);
     if (i < 0) return;
-    this._commit();
+    this._commit(this.current.uid);
     const [p] = this.points.splice(i, 1);
     this.activeId = p.template_id === null ? this.nextTodo(null) : id;
     this._emit('clear');
@@ -510,7 +518,7 @@ export class Session extends EventTarget {
     if (!p) return;
     const text = note.trim();
     if ((p.note || '') === text) return;
-    this._commit();
+    this._commit(this.current.uid);
     if (text) p.note = text;
     else delete p.note;
     this._emit('note');
@@ -555,7 +563,7 @@ export class Session extends EventTarget {
   }
 
   addControlPoint(id, hit) {
-    this._commit();
+    this._commit(this.current.uid);
     const c = this._ensureCurve(id);
     if (c.status === 'missing') c.status = 'placed';
     const cp = { position: hit.position };
@@ -570,7 +578,7 @@ export class Session extends EventTarget {
   removeLastControlPoint(id) {
     const c = this.curve(id);
     if (!c?.control_points?.length) return false;
-    this._commit();
+    this._commit(this.current.uid);
     c.control_points.pop();
     if (!c.control_points.length && !c.note && c.status !== 'missing') {
       this.current.curves = this.current.curves.filter((x) => x !== c);

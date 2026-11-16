@@ -33,7 +33,8 @@ export class Picker {
   setGeometry(geometry) {
     if (!geometry.boundsTree) geometry.computeBoundsTree({ indirect: true });
     // Never rendered; only used for ray tests. DoubleSide so inner walls can be picked.
-    this.mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    this._material ||= new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+    this.mesh = new THREE.Mesh(geometry, this._material);
     this.mesh.updateMatrixWorld(true);
   }
 

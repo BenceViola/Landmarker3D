@@ -35,6 +35,10 @@ async function start(opts) {
   return current.page;
 }
 
+// The template list redraws on the next frame; wait for it.
+async function itemCount(page, n) {
+  await page.waitForFunction((n) => document.querySelectorAll('.tpl-item').length === n, n, { timeout: 5000 });
+}
 const rowState = (page, id) => page.locator(`.lm-row[data-id="${id}"] .lm-state`).innerText();
 const hint = (page) => page.locator('#stage-hint').innerText();
 const activeCoords = async (page) => (await page.locator('#lm-active .coords').innerText()).split(',').map(Number);
@@ -188,7 +192,7 @@ describe('template editor', () => {
     await page.locator('#tpl-bulk-box summary').click();
     await page.locator('#tpl-bulk').fill('Asterion L\n\nAsterion R');
     await page.getByRole('button', { name: 'Add all' }).click();
-    assert.equal(await page.locator('.tpl-item').count(), 17);
+    await itemCount(page, 17);
 
     const name = page.locator('#tpl-name-LM15');
     await name.fill('Inion (external occipital protuberance)');
@@ -226,10 +230,10 @@ describe('template editor', () => {
     await selectTab(page, 'Template');
     await page.getByRole('button', { name: /Start a new empty template/ }).click();
     await page.getByRole('button', { name: 'Cancel' }).click();
-    assert.equal(await page.locator('.tpl-item').count(), 14);
+    await itemCount(page, 14);
     await page.getByRole('button', { name: /Start a new empty template/ }).click();
     await page.getByRole('button', { name: 'Start empty template' }).click();
-    assert.equal(await page.locator('.tpl-item').count(), 0);
+    await itemCount(page, 0);
   });
 });
 
@@ -445,5 +449,70 @@ describe('format version', () => {
     const doc = JSON.parse(file.text);
     assert.equal(doc.version, '0.2.0');
     assert.equal(doc.template.dimensions, 3);
+  });
+});
+
+describe('performance and reliability', () => {
+  test('the 3D view is drawn only when something changes', async () => {
+    const page = await start();
+    const frames = () => page.evaluate(() => window.__lmk.viewer.frames);
+    await page.mouse.move(5, 5); // away from the view
+    await page.waitForTimeout(400);
+    const idle0 = await frames();
+    await page.waitForTimeout(1000);
+    const idle = (await frames()) - idle0;
+    assert.ok(idle <= 4, `drawn ${idle} times in a second while nothing moved`);
+
+    // Rotating the view draws it on every move.
+    const c = await canvasCenter(page);
+    const before = await frames();
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(c.x + i * 8, c.y + i * 3);
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    assert.ok((await frames()) - before >= 8, 'drawn while rotating');
+
+    // A change made without the mouse (here: through the app) is drawn too.
+    const marks = () => page.evaluate(() => window.__lmk.markers.items.size);
+    const f0 = await frames();
+    await page.evaluate(() => {
+      const { session, picker, viewer } = window.__lmk;
+      const r = viewer.renderer.domElement.getBoundingClientRect();
+      session.place('LM01', picker.pickAt(r.left + r.width / 2, r.top + r.height / 2));
+    });
+    await page.waitForTimeout(150);
+    assert.equal(await marks(), 1);
+    assert.ok((await frames()) > f0, 'drawn after a change in the landmarks');
+  });
+
+  test('a graphics card reset says the landmarks are safe, and the view comes back', async () => {
+    const page = await start();
+    await clickAt(page, await canvasCenter(page));
+    await page.evaluate(() => {
+      window.__lose = window.__lmk.viewer.renderer.getContext().getExtension('WEBGL_lose_context');
+      window.__lose.loseContext();
+    });
+    await page.waitForFunction(() => !document.getElementById('message').hidden);
+    assert.match(await messageText(page), /graphics card was reset\. Your landmarks are safe/);
+    assert.equal(await rowState(page, 'LM01'), 'Placed');
+    await page.evaluate(() => window.__lose.restoreContext());
+    await page.waitForFunction(() => document.getElementById('message').hidden);
+    // Still works: place the next landmark.
+    const c = await canvasCenter(page);
+    await clickAt(page, { x: c.x + 30, y: c.y - 20 });
+    assert.equal(await rowState(page, 'LM02'), 'Placed');
+  });
+
+  test('an unexpected error is reported once, not silently', async () => {
+    const page = await start();
+    current.errors.length = 0;
+    await page.evaluate(() => {
+      setTimeout(() => { throw new Error('boom'); });
+      Promise.reject(new Error('boom again'));
+    });
+    await page.waitForFunction(() => !document.getElementById('message').hidden);
+    assert.match(await messageText(page), /Something went wrong.*save them now/);
+    current.errors.length = 0; // the two deliberate errors
   });
 });

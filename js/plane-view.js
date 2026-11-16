@@ -36,6 +36,7 @@ export class PlaneView {
    * cut, emphasis }]. `geometry` is the mesh's source geometry (or null).
    */
   update(list, geometry) {
+    this.viewer.requestRender();
     const keep = new Set();
     const box = this.viewer.box;
     for (const p of list) {
@@ -96,6 +97,7 @@ export class PlaneView {
 
   // Points clicked so far for a new plane.
   setPickPoints(points, radius, color = '#ffb300') {
+    this.viewer.requestRender();
     this.pickGroup.clear();
     for (const p of points) {
       const m = new THREE.Mesh(this.pickGeo, new THREE.MeshBasicMaterial({ color }));
