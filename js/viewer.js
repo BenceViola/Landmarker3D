@@ -9,7 +9,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
 const BONE = 0xe4ddcf;
-const IDLE_REDRAW_MS = 500;
+const IDLE_REDRAW_MS = 1000;
 
 // Named views along the mesh's own axes. `dir` points from the mesh to the camera.
 const VIEWS = {
@@ -88,7 +88,7 @@ export class Viewer {
     // graphics card busy (and laptop fans loud) for nothing, so the view is
     // only drawn when something may have changed: the camera moved, a
     // pointer or key was used, or a part of the app asked (requestRender).
-    // As a safety net it is also drawn twice a second.
+    // As a safety net it is also drawn once a second.
     this.frames = 0; // frames drawn, for the tests
     this._pending = 2;
     this._lastDraw = 0;

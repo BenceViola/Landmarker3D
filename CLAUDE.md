@@ -54,7 +54,7 @@ All changes to landmarks and the template go through `Session`, which fires a `c
 
 ## Performance and reliability rules
 
-- **The 3D view is drawn on demand** (`viewer.requestRender()`), not 60 times a second: after camera moves, pointer/keyboard/input events, session changes, and whenever markers, curves or planes change their objects; plus twice a second as a safety net. Anything that changes the scene outside those paths must call `requestRender()`. Browser tests that read the DOM right after a click should wait for it (the template list, for example, redraws on the next frame).
+- **The 3D view is drawn on demand** (`viewer.requestRender()`), not 60 times a second: after camera moves, pointer/keyboard/input events, session changes, and whenever markers, curves or planes change their objects; plus once a second as a safety net. Anything that changes the scene outside those paths must call `requestRender()`. Browser tests that read the DOM right after a click should wait for it (the template list, for example, redraws on the next frame).
 - **Undo steps are per specimen** for landmark and curve edits (`_commit(uid)`), and the whole set only for template edits (`_commit()`), so the history stays small with many specimens.
 - **Switching specimens clears the picker** until the new mesh is on screen, so a click can never land on the previous specimen's mesh. A `show()` that has been overtaken by a newer one leaves the busy message to the newer one.
 - Errors nobody expected, a failure preparing a mesh, and a graphics card reset (WebGL context lost) all show a message saying the landmarks are safe and to save, instead of failing silently.
