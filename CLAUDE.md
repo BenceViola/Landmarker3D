@@ -8,7 +8,7 @@ Browser app for placing 3D landmarks on STL/PLY meshes, for teaching and researc
 - **Face order is the file's order.** `anchor.face` is the triangle index in the file. The BVH is built with `indirect: true` so it never reorders triangles. Vertex merging for smooth shading happens only on a separate display copy (`viewer.js`). `tests/unit/picking.test.js` guards this.
 - **Triangle meshes only.** PLY files with quads or polygons are refused, not triangulated (triangulating would shift face numbers). Point clouds are refused.
 - **3D only.** The format (v0.2) also defines 2D image data; this app refuses 2D templates and image sources with a clear message.
-- **Landmark JSON format**, spec in `docs/landmark-json-spec.md`. Files are written as 0.2.0, or 0.3.0 for a replicate after the first; re-saving a newer file keeps its version; files up to 0.3 are read. On `advanced`: 0.4.0 when the template has planes, files up to 0.4 are read. Unknown fields in an opened file must survive a save. Missing values are `null` in JSON, never a sentinel number.
+- **Landmark JSON format**, spec in `docs/landmark-json-spec.md`. Files are written as 0.2.0, 0.3.0 for a replicate after the first, or 0.4.0 when the template has planes; re-saving a newer file keeps its version; files up to 0.4 are read. Unknown fields in an opened file must survive a save. Missing values are `null` in JSON, never a sentinel number.
 - **Sets, replicates, hand-ins and combining follow the 2D app (landmarker2D)**: same export IDs (`_<operator>` when a specimen has several operators, `_r<n>` when any has replicates), same file names (`<id>_r<n>.lmk.json`), same hand-in contents, same CSV columns (plus `z`). Change them in both apps together.
 - **At most three meshes in memory** (`MeshStore`), because some surfaces have a million triangles or more. A specimen's landmarks never depend on its mesh being loaded.
 - **`vertex_count` / `face_count` are raw file counts** (for STL, vertices = 3 × faces).
@@ -26,13 +26,13 @@ Browser app for placing 3D landmarks on STL/PLY meshes, for teaching and researc
 | `js/specimen-panel.js` | Specimen tab: ID, notes, units, replicates, repeatability, removing a specimen |
 | `js/viewer.js` | three.js scene, camera framing, shading, CSS2D label layer |
 | `js/mesh-loader.js` | STL/PLY reading, raw counts, SHA-256, triangle-only checks |
-| `js/planes.js` | (advanced) Plane fitting (exact through 3, least squares for more), signed distances, mesh cut lines |
-| `js/plane-view.js` | (advanced) Drawing planes and cut lines in the 3D view |
-| `js/planes-panel.js` | (advanced) Planes tab: template planes, planes from 3 clicks (not saved), cut-away, distance tables |
-| `js/curves.js` | (advanced) Curve maths: path through the clicks moved onto the surface, equal arc length resampling, states |
-| `js/geodesic.js` | (advanced) Shortest paths across the surface: corner table (welded copy, file face order kept), A* along edges, pulling the path tight |
-| `js/curve-view.js` | (advanced) Computes the current specimen's curves on the mesh on screen and draws them; clicked points can be dragged |
-| `js/sliders.js` | (advanced) The geomorph sliders file (`<base>_curveslide.csv`: before, slide, after as TPS rows), from the template alone |
+| `js/planes.js` | Plane fitting (exact through 3, least squares for more), signed distances, mesh cut lines |
+| `js/plane-view.js` | Drawing planes and cut lines in the 3D view |
+| `js/planes-panel.js` | Planes tab: template planes, planes from 3 clicks (not saved), cut-away, distance tables |
+| `js/curves.js` | Curve maths: path through the clicks moved onto the surface, equal arc length resampling, states |
+| `js/geodesic.js` | Shortest paths across the surface: corner table (welded copy, file face order kept), A* along edges, pulling the path tight |
+| `js/curve-view.js` | Computes the current specimen's curves on the mesh on screen and draws them; clicked points can be dragged |
+| `js/sliders.js` | The geomorph sliders file (`<base>_curveslide.csv`: before, slide, after as TPS rows), from the template alone |
 | `js/export-rows.js` | Rows of one specimen for TPS and CSV: landmarks and curve semilandmarks in export order, then ad hoc points |
 | `js/picking.js` | BVH raycasting, anchors (face + barycentric), snapping, occlusion |
 | `js/markers.js` | Landmark spheres and labels; labels hide behind the surface |
@@ -65,12 +65,12 @@ All changes to landmarks and the template go through `Session`, which fires a `c
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main` or `advanced`: `main` at the site root (students), `advanced` under `/next/` (experimental). Each part comes from the latest commit of its branch whose tests passed. The workflow runs from `main`'s copy, so change it there. The repository's Pages source is "GitHub Actions", so nothing is published without this workflow (before it existed, the live site stayed at an old version for hours). The version in the page header (`v0.2`) shows which version is live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main` or `advanced`: `main` at the site root (students), `advanced` under `/next/` (experimental). Each part comes from the latest commit of its branch whose tests passed. The workflow runs from `main`'s copy, so change it there. The repository's Pages source is "GitHub Actions", so nothing is published without this workflow (before it existed, the live site stayed at an old version for hours). The version in the page header (`v0.4`) shows which version is live.
 
 ## Branches
 
 - `main`: what students use; published to GitHub Pages.
-- `advanced`: experiments (planes, curves), published at `/next/` and as the claude.ai artifact "Landmarker (experimental)"; its header says "experimental". Plan in `docs/plans/advanced-features.md`. Merge `main` into it after changes on `main`; merge back only when a feature is tested and the master spec covers what it saves.
+- `advanced`: experiments, published at `/next/` and as the claude.ai artifact "Landmarker (experimental)"; its header says "experimental". Plan in `docs/plans/advanced-features.md`. Merge `main` into it after changes on `main`; merge back only when a feature is tested and the master spec covers what it saves. Planes and curves were merged into `main` on 2026-11-15 (v0.4).
 
 ## Writing for the UI
 
@@ -89,7 +89,7 @@ Short, plain sentences from the student's side of the screen. Errors say what we
 ## Not done yet
 
 - A gallery comparing one landmark across specimens (the 2D app's Compare view); in 3D it needs its own design because of the three-mesh limit.
-- Curves: on `advanced`, geodesic (default) and euclidean paths are done (template curves, tracing, dragging, saving, TPS/CSV rows `C01_01`…). The geomorph sliders file is done too (File tab, combine dialog, hand-in). Still to do: the same sliders file and hand-in entry in the 2D app, repeatability per curve, curves in the Planes tab.
+- Curves: geodesic (default) and euclidean paths are done (template curves, tracing, dragging, saving, TPS/CSV rows `C01_01`…). The geomorph sliders file is done too (File tab, combine dialog, hand-in). Still to do: the same sliders file and hand-in entry in the 2D app, repeatability per curve, curves in the Planes tab.
 - Saving and opening templates as separate `.template.json` files; opening landmark files that reference one (currently refused).
 - A JSON Schema file for the format.
 - Deferred: Slicer `.mrk.json` export.

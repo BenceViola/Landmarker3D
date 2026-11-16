@@ -1,6 +1,6 @@
 # Advanced features: plan for the `advanced` branch
 
-Started 2026-11-08. This branch is for features that need experimenting before students see them. `main` stays what students use on GitHub Pages; nothing here is published there until it is merged.
+Started 2026-11-08. **Planes and curves were merged into `main` on 2026-11-15** (site version v0.4), after a round of performance and reliability fixes. This branch is for features that need experimenting before students see them. `main` stays what students use on GitHub Pages; nothing here is published there until it is merged.
 
 ## How the branch works
 

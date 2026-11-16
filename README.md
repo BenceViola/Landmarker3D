@@ -13,6 +13,8 @@ Nothing to install. Meshes are read on your own computer and never uploaded.
 - **Templates** define which landmarks to place and in which order, with placement instructions and left/right pairs. Edit them in the Template tab.
 - **Placing**: click the mesh to place the current landmark; the app moves on to the next one. Drag a marker to move it. Mark landmarks as *missing* or *estimated*, add notes, and add ad hoc points that are not in the template. Undo and redo cover everything.
 - **Landmark files** (`.lmk.json`): one file per specimen with the template, every point and the mesh's SHA-256, so a file is never applied to the wrong mesh by accident. The format is documented in [`docs/landmark-json-spec.md`](docs/landmark-json-spec.md).
+- **Curves** with evenly spaced semilandmarks: define them in the Template tab (number of points, start and end landmarks, or a closed loop), then click along the curve. The path follows the surface (the shortest way across it, or straight segments pulled onto it), and clicked points can be dragged. Exported with the landmarks (`C01_01`, …), plus the sliders file geomorph needs to slide them (`<name>_curveslide.csv`).
+- **Planes** from landmarks (exact through three, best fit through more) or from three clicks: see where a plane cuts the mesh, hide one side of it, and read each landmark's distance from it, e.g. to check midline landmarks against the midsagittal plane.
 - **Replicates**: landmark a specimen again (optionally in random order) to check how reliably landmarks are placed. Earlier points stay hidden, and a repeatability summary shows how far apart replicates landed, in mm.
 - **Hand-in**: one zip with a landmark file for every specimen plus TPS and CSV, named after the student. Opening the zip again resumes the set.
 - **TPS and CSV export** of the whole set, and **Combine hand-ins** for instructors: several students' zips into one TPS and CSV. Specimens done by more than one student get the student's name in their ID; replicates get `_r1`, `_r2`.
@@ -50,6 +52,6 @@ npm run test:e2e                 # browser tests
 
 To try changes locally, serve the folder with any static server, e.g. `npx serve .`, and open the address it prints. Opening `index.html` straight from disk does not work, because browsers block module scripts from `file://` addresses.
 
-The site is published to GitHub Pages by `.github/workflows/pages.yml` after the tests pass on every push to `main` (repository Settings → Pages → Source must be "GitHub Actions").
+The site is published to GitHub Pages by `.github/workflows/pages.yml` after the tests pass on every push to `main` (repository Settings → Pages → Source must be "GitHub Actions"). The `advanced` branch, for features being tried out, is published at [/next/](https://benceviola.github.io/Landmarker3D/next/).
 
 More detail on the code and the decisions behind it: [`CLAUDE.md`](CLAUDE.md). Tests: [`tests/README.md`](tests/README.md).
