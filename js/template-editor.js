@@ -12,9 +12,11 @@ import { esc } from './landmark-panel.js';
 import { nPointsOf, MAX_CURVE_POINTS, pathOf } from './curves.js';
 
 export class TemplateEditor {
-  constructor(root, session) {
+  // ctx: { saveTemplate(), openTemplate() } for the Template file buttons.
+  constructor(root, session, ctx = {}) {
     this.root = root;
     this.session = session;
+    this.ctx = ctx;
     this.errors = new Map(); // landmark id -> message
     this.open = new Set(); // ids whose details are expanded
     this.confirming = null; // id awaiting delete confirmation, or '*new*'
@@ -134,6 +136,13 @@ export class TemplateEditor {
         <label class="visually-hidden" for="tpl-new-curve">New curve name</label>
         <input id="tpl-new-curve" type="text" placeholder="New curve, e.g. Supraorbital margin" value="${esc(pendingCurve)}">
         <button type="button" class="btn" data-act="add-curve">Add curve</button>
+      </div>
+
+      <h2 class="tpl-h" id="tpl-file-h">Template file</h2>
+      <p class="hint">Save the template and share it, so every student places the same landmarks. Opening a template file replaces this template for all specimens; points of landmarks it doesn’t list are kept as ad hoc points.</p>
+      <div class="open-row">
+        <button type="button" class="btn" data-act="tpl-save">Save template file</button>
+        <button type="button" class="btn" data-act="tpl-open">Open template file…</button>
       </div>
 
       <div class="tpl-danger">
@@ -352,6 +361,8 @@ export class TemplateEditor {
       case 'down': s.moveDef(id, 1); break;
       case 'del': this.confirming = id; this.requestRender(); break;
       case 'del-yes': this.confirming = null; this.errors.delete(id); s.removeDef(id); break;
+      case 'tpl-save': this.ctx.saveTemplate?.(); break;
+      case 'tpl-open': this.ctx.openTemplate?.(); break;
       case 'new': this.confirming = '*new*'; this.requestRender(); break;
       case 'new-yes': this.confirming = null; this.errors.clear(); s.newTemplate(); break;
       case 'cancel': this.confirming = null; this.requestRender(); break;

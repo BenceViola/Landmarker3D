@@ -95,7 +95,10 @@ const landmarkPanel = new LandmarkPanel($('tab-landmarks'), session, {
   curveError: (id) => curveView?.errorOf(id),
   curveWarning: (id) => curveView?.warningOf(id),
 });
-const templateEditor = new TemplateEditor($('template-editor'), session);
+const templateEditor = new TemplateEditor($('template-editor'), session, {
+  saveTemplate: () => files?.saveTemplateFile(),
+  openTemplate: () => $('open-template-input').click(),
+});
 const strip = specimens ? setupStrip($('strip'), { session, specimens, openMeshPicker: app.openMeshPicker }) : null;
 const specimenPanel = specimens ? setupSpecimenPanel(app) : null;
 const files = specimens ? setupFiles(app) : null;
@@ -269,7 +272,7 @@ window.addEventListener('drop', async (e) => {
   const other = dropped.length - data.length - meshes.length;
   if (data.length) await files.openLandmarkFiles(data);
   if (meshes.length) await specimens.openMeshFiles(meshes);
-  if (other) showMessage('note', `${other === 1 ? 'One file was' : `${other} files were`} ignored: only STL and PLY meshes, .lmk.json files and hand-in zips can be opened.`);
+  if (other) showMessage('note', `${other === 1 ? 'One file was' : `${other} files were`} ignored: only STL and PLY meshes, .lmk.json and .template.json files and hand-in zips can be opened.`);
 });
 
 // ---- Display and views -----------------------------------------------------

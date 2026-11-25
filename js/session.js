@@ -725,6 +725,42 @@ export class Session extends EventTarget {
     this._emit('template');
   }
 
+  /**
+   * Use another template (from a template file) for the whole set, as the 2D
+   * app does: points of landmarks it no longer lists become ad hoc points
+   * (keeping their name as the label), and curves it no longer lists are
+   * removed. One undo step. Returns { orphaned, removedCurves } counts.
+   */
+  applyTemplate(template) {
+    this._commit();
+    const t = clone(template);
+    t.dimensions = DIMENSIONS;
+    const lm = new Map(t.landmarks.map((d) => [d.id, d]));
+    const curves = new Set((t.curves || []).map((c) => c.id));
+    let orphaned = 0;
+    let removedCurves = 0;
+    for (const r of this.records) {
+      for (const p of r.points) {
+        if (p.template_id === null || lm.has(p.template_id)) continue;
+        p.label = p.label || this.def(p.template_id)?.name || p.id;
+        p.template_id = null;
+        orphaned++;
+        r.dirty = true;
+      }
+      const kept = (r.curves || []).filter((c) => curves.has(c.template_id ?? c.id));
+      if (kept.length !== (r.curves || []).length) {
+        removedCurves += (r.curves || []).length - kept.length;
+        r.dirty = true;
+      }
+      r.curves = kept;
+    }
+    this.template = t;
+    if (this.activeId && this.activeId !== ADHOC && !this.def(this.activeId) && !this.curveDef(this.activeId)) this.activeId = null;
+    if (!this.activeId) this.activeId = this.nextTodo(null);
+    this._emit('template');
+    return { orphaned, removedCurves };
+  }
+
   newTemplate() {
     this._commit();
     this.template = { id: 'untitled', name: 'Untitled template', version: '1.0', dimensions: DIMENSIONS, landmarks: [] };
