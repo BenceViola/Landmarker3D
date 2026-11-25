@@ -38,6 +38,12 @@ The `sha256` of the mesh or image lets the app warn when a file is opened agains
 
 The template is the landmarking protocol: the list of landmarks (and later curves) every specimen should get, in export order. It can be embedded in each specimen file or kept as a separate `.template.json` that files reference. Embedding a copy is the default, so a file stays self-contained when sent to someone else.
 
+**Template files (`.template.json`).** A template file holds the bare template object, exactly as it would be embedded in a landmark file's `template` (no `format`/`version` wrapper), with `dimensions` set. It is named `<template id>.template.json`.
+
+- Apps can save the current template as a template file and open one. They may also open a landmark file as a template, taking its embedded `template`.
+- A template without `dimensions` is read as 3D. An app refuses a template for the other dimension, and one that only refers to another template file.
+- Opening a template file replaces the template for the whole set, as one undo step. Points of landmarks it no longer lists are kept as ad hoc points (with their old name as label); traced curves it no longer lists are removed.
+
 Template fields:
 
 - `id`, `name`, `version`, `dimensions` (`3` for meshes, `2` for images; defaults to 3 if absent), optional `description` and `author`.
@@ -355,3 +361,4 @@ three.js app (decided 2026-11-06):
 - [x] Curves (v0.2) in 3D start with `"euclidean"` paths (straight segments between clicks, moved onto the surface). Semilandmark rows are named `<curve id>_<nn>`, as in the 2D app. `"geodesic"` paths and the geomorph sliders file come later.
 - [x] `"geodesic"` paths (shortest route across the surface) are the default for new 3D curves; `"euclidean"` stays available per curve (decided 2026-11-10).
 - [x] The sliders file follows geomorph's `curveslide.csv` (`before`, `slide`, `after` as TPS row numbers); free curve ends don't slide; every point of a closed loop slides (decided 2026-11-11).
+- [x] A template file (`<id>.template.json`) is the bare template object with `dimensions` set, as the 2D app writes it; opening one replaces the set's template, keeping points it no longer lists as ad hoc points (decided 2026-11-24).

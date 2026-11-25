@@ -42,7 +42,7 @@ Browser app for placing 3D landmarks on STL/PLY meshes, for teaching and researc
 | `js/landmark-panel.js` | Landmarks tab |
 | `js/template-editor.js` | Template tab |
 | `js/files-panel.js` | File tab: operator, save/open, opening files into the set, hand-in, TPS/CSV export, combining |
-| `js/landmark-file.js` | Build and parse `.lmk.json` |
+| `js/landmark-file.js` | Build and parse `.lmk.json`; template files (`.template.json`: the bare template, as the 2D app writes it) |
 | `js/tps.js` | TPS writer |
 | `js/csv.js` | CSV writer (long format) |
 | `js/handin.js` | Hand-in zip contents (with the sliders file when the template has curves), reading zips, combining hand-ins |
@@ -90,6 +90,6 @@ Short, plain sentences from the student's side of the screen. Errors say what we
 
 - A gallery comparing one landmark across specimens (the 2D app's Compare view); in 3D it needs its own design because of the three-mesh limit.
 - Curves: geodesic (default) and euclidean paths are done (template curves, tracing, dragging, saving, TPS/CSV rows `C01_01`…). The geomorph sliders file is done too (File tab, combine dialog, hand-in). Still to do: the same sliders file and hand-in entry in the 2D app, repeatability per curve, curves in the Planes tab.
-- Saving and opening templates as separate `.template.json` files; opening landmark files that reference one (currently refused).
+- Opening landmark files that reference a separate template file (currently refused). Saving and opening `.template.json` files themselves is done (Template tab, as in the 2D app).
 - A JSON Schema file for the format.
 - Deferred: Slicer `.mrk.json` export.

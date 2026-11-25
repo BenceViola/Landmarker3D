@@ -7,7 +7,7 @@
 //   - combining students' hand-ins (instructors)
 //   - warning before unsaved landmarks are lost
 
-import { buildLandmarkFile, parseLandmarkFile, LandmarkFileError } from './landmark-file.js';
+import { buildLandmarkFile, parseLandmarkFile, LandmarkFileError, parseTemplateFile, templateFileText, templateFileName } from './landmark-file.js';
 import { replicateOf, recordHasData } from './session.js';
 import { toTps } from './tps.js';
 import { toCsv } from './csv.js';
@@ -28,6 +28,8 @@ const ZIP_TYPES = [{ description: 'Zip file', accept: { 'application/zip': ['.zi
 
 const stamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const TEMPLATE_TYPES = [{ description: 'Template file', accept: { 'application/json': ['.json'] } }];
+export const isTemplateFile = (name) => /\.template\.json$/i.test(name);
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -89,6 +91,12 @@ export function setupFiles(app) {
     const files = [...e.target.files];
     e.target.value = '';
     if (files.length) openLandmarkFiles(files);
+  });
+  // "Open template file…" in the Template tab.
+  $('open-template-input').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) openTemplateFile(f);
   });
   $('handin-btn').addEventListener('click', handIn);
   $('export-tps').addEventListener('click', () => exportSet('tps'));
@@ -189,6 +197,13 @@ export function setupFiles(app) {
 
   async function openLandmarkFiles(files) {
     ui.clearMessage();
+    // Template files chosen here are opened as templates.
+    const templates = [...files].filter((f) => isTemplateFile(f.name));
+    if (templates.length) {
+      await openTemplateFile(templates[0]);
+      files = [...files].filter((f) => !isTemplateFile(f.name));
+      if (!files.length) return;
+    }
     const entries = await readEntries(files);
     const problems = [];
     const parsed = [];
@@ -457,6 +472,50 @@ export function setupFiles(app) {
     );
   }
 
+  // ---- Template files ------------------------------------------------------
+
+  // Save the template on its own, to share with students.
+  async function saveTemplateFile() {
+    const t = session.template;
+    if (!t.landmarks.length && !(t.curves || []).length) {
+      ui.showMessage('error', 'The template is empty. Add landmarks before saving it.');
+      return;
+    }
+    let res;
+    try {
+      res = await saveFile({ filename: templateFileName(t), data: templateFileText(t), types: TEMPLATE_TYPES });
+    } catch (err) {
+      ui.showMessage('error', err.message);
+      return;
+    }
+    if (res.status === 'cancelled') return;
+    ui.showMessage('note', `Saved the template to ${res.name}. Share it, so every student places the same landmarks.`);
+  }
+
+  // Use the template in a template file (or a landmark file) for the whole set.
+  async function openTemplateFile(file) {
+    ui.clearMessage();
+    let r;
+    try {
+      r = parseTemplateFile(await file.text(), file.name);
+    } catch (err) {
+      if (!(err instanceof LandmarkFileError)) console.error(err);
+      ui.showMessage('error', err instanceof LandmarkFileError ? err.message : `Couldn’t read “${file.name}”.`);
+      return;
+    }
+    const res = session.applyTemplate(r.template);
+    const notes = [...r.warnings];
+    if (res.orphaned) notes.push(`${plural(res.orphaned, 'point')} of landmarks it doesn’t list ${res.orphaned === 1 ? 'is kept as an ad hoc point' : 'are kept as ad hoc points'}.`);
+    if (res.removedCurves) notes.push(`${plural(res.removedCurves, 'traced curve')} it doesn’t list ${res.removedCurves === 1 ? 'was' : 'were'} removed.`);
+    if (res.orphaned || res.removedCurves) notes.push('Undo brings back the previous template.');
+    const t = r.template;
+    ui.showMessage(
+      'note',
+      `Now using the template “${t.name || t.id}” (${plural(t.landmarks.length, 'landmark')}${t.curves?.length ? `, ${plural(t.curves.length, 'curve')}` : ''})` +
+        `${r.fromLandmarkFile ? `, taken from the landmark file ${file.name}` : ''}.` + (notes.length ? ' ' + notes.join(' ') : '')
+    );
+  }
+
   // ---- Combining hand-ins (instructors) ------------------------------------
 
   async function combine(files) {
@@ -492,7 +551,7 @@ export function setupFiles(app) {
   }
 
   renderStatus();
-  return { openLandmarkFiles, renderStatus, save, operator, unsaved, docFor };
+  return { openLandmarkFiles, openTemplateFile, saveTemplateFile, renderStatus, save, operator, unsaved, docFor };
 }
 
 export { stateOf };

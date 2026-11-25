@@ -213,20 +213,7 @@ export function parseLandmarkFile(text, name) {
     }
     throw new LandmarkFileError(`“${name}” has no template.`);
   }
-  const templateError = checkTemplate(t);
-  if (templateError) throw new LandmarkFileError(templateError);
-  const planeNote = cleanPlanes(t);
-  if (planeNote) warnings.push(planeNote);
-  const curveDefNote = cleanCurveDefs(t);
-  if (curveDefNote) warnings.push(curveDefNote);
-  const defIds = new Set();
-  for (const d of t.landmarks) {
-    if (!d || typeof d.id !== 'string' || !d.id || defIds.has(d.id)) {
-      throw new LandmarkFileError(`The template in “${name}” has a landmark with a missing or repeated ID.`);
-    }
-    defIds.add(d.id);
-    if (typeof d.name !== 'string' || !d.name) d.name = d.id;
-  }
+  const defIds = checkTemplateObject(t, name, warnings);
 
   const points = [];
   const seen = new Set();
@@ -321,6 +308,69 @@ function cleanCurveDefs(t) {
   if (dropped) parts.push(`${dropped} curve definition${dropped === 1 ? ' was' : 's were'} unreadable and left out`);
   if (ends) parts.push(`${ends} curve end${ends === 1 ? '' : 's'} named landmarks not in the template and became free`);
   return parts.length ? parts.join('; ') + '.' : null;
+}
+
+// Check a template (from a landmark file or a template file) and tidy it in
+// place: unusable planes and curve definitions are dropped with a note in
+// `warnings`. Throws LandmarkFileError when it can't be used at all. Returns
+// the set of landmark IDs.
+function checkTemplateObject(t, name, warnings) {
+  const templateError = checkTemplate(t);
+  if (templateError) throw new LandmarkFileError(templateError);
+  const planeNote = cleanPlanes(t);
+  if (planeNote) warnings.push(planeNote);
+  const curveDefNote = cleanCurveDefs(t);
+  if (curveDefNote) warnings.push(curveDefNote);
+  const defIds = new Set();
+  for (const d of t.landmarks) {
+    if (!d || typeof d.id !== 'string' || !d.id || defIds.has(d.id)) {
+      throw new LandmarkFileError(`The template in “${name}” has a landmark with a missing or repeated ID.`);
+    }
+    defIds.add(d.id);
+    if (typeof d.name !== 'string' || !d.name) d.name = d.id;
+  }
+  return defIds;
+}
+
+// ---- Template files (.template.json) ---------------------------------------
+// A template file is the bare template object, as embedded in a landmark
+// file's "template", with "dimensions" set (as the 2D app writes them). A
+// landmark file can be opened as a template too: its template is used.
+
+export const templateFileName = (template) => `${String(template.id || 'template').replace(/[^A-Za-z0-9_.-]+/g, '_')}.template.json`;
+
+export function templateFileText(template) {
+  const t = clone(template);
+  t.dimensions = 3;
+  return stringify(t);
+}
+
+/**
+ * Read a template file, or the template of a landmark file. Returns
+ * { template, warnings, fromLandmarkFile }; throws LandmarkFileError with a
+ * message for the user.
+ */
+export function parseTemplateFile(text, name) {
+  let doc;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    throw new LandmarkFileError(`“${name}” isn’t valid JSON, so it can’t be a template file.`);
+  }
+  const fromLandmarkFile = doc?.format === 'landmark-json';
+  const t = fromLandmarkFile ? doc.template : doc;
+  if (!t || typeof t !== 'object' || Array.isArray(t)) throw new LandmarkFileError(`“${name}” doesn’t hold a template.`);
+  if (t.ref && !Array.isArray(t.landmarks)) {
+    throw new LandmarkFileError(`“${name}” refers to another template file (${t.ref}) instead of including the template. Open that template file instead.`);
+  }
+  if (!fromLandmarkFile && (t.format || !Array.isArray(t.landmarks))) {
+    throw new LandmarkFileError(`“${name}” isn’t a template file (it has no list of landmarks).`);
+  }
+  const template = clone(t);
+  const warnings = [];
+  checkTemplateObject(template, name, warnings);
+  template.dimensions = 3;
+  return { template, warnings, fromLandmarkFile };
 }
 
 // Drop plane definitions that can't be used; keep the rest. Returns a note, or null.
